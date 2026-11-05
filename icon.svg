@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Todo Panel">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#2f6feb"/>
+  <path d="M15 21.5l3.4 3.4 6-6.6" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M33 22h15" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M15 36.5l3.4 3.4 6-6.6" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M33 37h15" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="20.5" cy="50.5" r="3" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="3"/>
+  <path d="M33 51h11" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="4" stroke-linecap="round"/>
+</svg>

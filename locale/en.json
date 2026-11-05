@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Todo Panel",
+    "description": "A collapsible todo panel docked to the right with a built-in pomodoro timer (15/30/45/60 minutes, round count and break interval, announced through system notifications). Create items with a title, details, due time and attachment, grouped by today and more, with a second tab for all items and paged completed ones. Kept in this browser."
+  }
+}
