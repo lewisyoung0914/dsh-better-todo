@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-todo",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A floating todo panel for the DSH Web UI with a built-in pomodoro timer, today/more grouping and a separate all-items tab.",
   "type": "module",
   "license": "MIT",

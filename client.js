@@ -24,6 +24,8 @@ window.__ModuleLoader__.load({
     /** Pomodoro presets offered in the panel, in minutes. */
     const POMO_FOCUS_CHOICES = [15, 30, 45, 60];
     const POMO_BREAK_CHOICES = [3, 5, 10, 15];
+    const POMO_FOCUS_RANGE = [1, 180];
+    const POMO_BREAK_RANGE = [1, 120];
 
     /** Text carried by the package; the locale service is consulted first. */
     const DICTS = {
@@ -68,6 +70,7 @@ window.__ModuleLoader__.load({
         pomoDuration: '时长',
         pomoRounds: '番茄数',
         pomoBreakLen: '休息间隔',
+        pomoCustom: '自定义',
         pomoStart: '开始',
         pomoPause: '暂停',
         pomoReset: '重置',
@@ -119,6 +122,7 @@ window.__ModuleLoader__.load({
         pomoDuration: 'Length',
         pomoRounds: 'Rounds',
         pomoBreakLen: 'Break',
+        pomoCustom: 'Custom',
         pomoStart: 'Start',
         pomoPause: 'Pause',
         pomoReset: 'Reset',
@@ -221,6 +225,10 @@ window.__ModuleLoader__.load({
 .dshtodo-chipbtn.is-active{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);font-weight:600}
 .dshtodo-chipbtn:disabled{opacity:.45;cursor:default}
 .dshtodo-pomo-value{min-width:20px;text-align:center;font-size:12px;color:var(--dsw-alias-label-primary)}
+.dshtodo-pomo-custom{margin-top:-3px}
+.dshtodo-pomo-input{width:62px;height:26px;padding:0 8px;box-sizing:border-box;font-size:12px;font-variant-numeric:tabular-nums}
+.dshtodo-pomo-input:disabled{color:var(--dsw-alias-label-secondary);background:transparent;cursor:not-allowed}
+.dshtodo-pomo-unit{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .dshtodo-pomo-actions{display:flex;gap:8px;width:100%;justify-content:center;margin-top:6px}
 `;
 
@@ -552,8 +560,13 @@ window.__ModuleLoader__.load({
         if (!parsed || typeof parsed !== 'object') return state;
         const num = (value, fallback, min, max) =>
           Number.isFinite(value) ? clamp(value, min, max) : fallback;
-        state.focus = num(parsed.focus, state.focus, 1, 180);
-        state.breakMinutes = num(parsed.breakMinutes, state.breakMinutes, 1, 60);
+        state.focus = num(parsed.focus, state.focus, POMO_FOCUS_RANGE[0], POMO_FOCUS_RANGE[1]);
+        state.breakMinutes = num(
+          parsed.breakMinutes,
+          state.breakMinutes,
+          POMO_BREAK_RANGE[0],
+          POMO_BREAK_RANGE[1],
+        );
         state.rounds = num(parsed.rounds, state.rounds, 1, 24);
         state.completed = num(parsed.completed, 0, 0, 99);
         state.phase = parsed.phase === 'focus' || parsed.phase === 'break' ? parsed.phase : 'idle';
@@ -884,6 +897,101 @@ window.__ModuleLoader__.load({
       return pomoRemainingMs(state, Date.now());
     }
 
+    /**
+     * One duration setting: preset chips plus a "Custom" chip that reveals a
+     * minute field, so any value inside [min, max] can be typed in.
+     */
+    function DurationRow(props) {
+      const t = translate;
+      const [draft, setDraft] = React.useState(String(props.value));
+      const [editing, setEditing] = React.useState(false);
+      const preset = props.choices.indexOf(props.value) >= 0;
+      const showField = editing || !preset;
+
+      React.useEffect(() => {
+        setDraft(String(props.value));
+      }, [props.value]);
+
+      const clamp = (parsed) => Math.min(props.max, Math.max(props.min, parsed));
+
+      return h(
+        React.Fragment,
+        null,
+        h(
+          'div',
+          { className: 'dshtodo-pomo-row' },
+          h('span', { className: 'dshtodo-label' }, props.label),
+          h(
+            'div',
+            { className: 'dshtodo-chips' },
+            props.choices.map((choice) =>
+              h(
+                'button',
+                {
+                  key: choice,
+                  type: 'button',
+                  className: 'dshtodo-chipbtn' + (props.value === choice ? ' is-active' : ''),
+                  disabled: props.disabled,
+                  onClick: () => {
+                    setEditing(false);
+                    if (choice !== props.value) props.onChange(choice);
+                  },
+                },
+                String(choice),
+              ),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dshtodo-chipbtn' + (preset ? '' : ' is-active'),
+                disabled: props.disabled,
+                onClick: () => setEditing(true),
+              },
+              t('pomoCustom'),
+            ),
+          ),
+        ),
+        showField
+          ? h(
+              'div',
+              { className: 'dshtodo-pomo-row dshtodo-pomo-custom' },
+              h('span', { className: 'dshtodo-label' }),
+              h('input', {
+                type: 'number',
+                className: 'dshtodo-input dshtodo-pomo-input',
+                min: props.min,
+                max: props.max,
+                step: 1,
+                inputMode: 'numeric',
+                value: draft,
+                disabled: props.disabled,
+                'aria-label': props.label,
+                onChange: (event) => {
+                  const raw = event.target.value;
+                  setDraft(raw);
+                  const parsed = Number.parseInt(raw, 10);
+                  if (Number.isFinite(parsed) && parsed === clamp(parsed) && parsed !== props.value) {
+                    props.onChange(parsed);
+                  }
+                },
+                onBlur: () => {
+                  const parsed = Number.parseInt(draft, 10);
+                  if (!Number.isFinite(parsed)) {
+                    setDraft(String(props.value));
+                    return;
+                  }
+                  const next = clamp(parsed);
+                  setDraft(String(next));
+                  if (next !== props.value) props.onChange(next);
+                },
+              }),
+              h('span', { className: 'dshtodo-pomo-unit' }, t('pomoMinute')),
+            )
+          : null,
+      );
+    }
+
     function PomodoroPage() {
       useLocaleVersion();
       const [state] = pomodoroStore.use();
@@ -897,25 +1005,6 @@ window.__ModuleLoader__.load({
           ? t('pomoBreak')
           : t('pomoFocus') + ' ' + Math.min(state.completed + 1, state.rounds) + '/' + state.rounds;
 
-      const chips = (choices, active, onPick) =>
-        h(
-          'div',
-          { className: 'dshtodo-chips' },
-          choices.map((value) =>
-            h(
-              'button',
-              {
-                key: value,
-                type: 'button',
-                className: 'dshtodo-chipbtn' + (active === value ? ' is-active' : ''),
-                disabled: !idle,
-                onClick: () => onPick(value),
-              },
-              String(value),
-            ),
-          ),
-        );
-
       return h(
         'div',
         { className: 'dshtodo-pomo-page' + (running ? ' is-running' : '') },
@@ -924,12 +1013,15 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'dshtodo-pomo-settings' },
-          h(
-            'div',
-            { className: 'dshtodo-pomo-row' },
-            h('span', { className: 'dshtodo-label' }, t('pomoDuration')),
-            chips(POMO_FOCUS_CHOICES, state.focus, (value) => pomoConfigure({ focus: value })),
-          ),
+          h(DurationRow, {
+            label: t('pomoDuration'),
+            choices: POMO_FOCUS_CHOICES,
+            value: state.focus,
+            min: POMO_FOCUS_RANGE[0],
+            max: POMO_FOCUS_RANGE[1],
+            disabled: !idle,
+            onChange: (value) => pomoConfigure({ focus: value }),
+          }),
           h(
             'div',
             { className: 'dshtodo-pomo-row' },
@@ -960,14 +1052,15 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          h(
-            'div',
-            { className: 'dshtodo-pomo-row' },
-            h('span', { className: 'dshtodo-label' }, t('pomoBreakLen')),
-            chips(POMO_BREAK_CHOICES, state.breakMinutes, (value) =>
-              pomoConfigure({ breakMinutes: value }),
-            ),
-          ),
+          h(DurationRow, {
+            label: t('pomoBreakLen'),
+            choices: POMO_BREAK_CHOICES,
+            value: state.breakMinutes,
+            min: POMO_BREAK_RANGE[0],
+            max: POMO_BREAK_RANGE[1],
+            disabled: !idle,
+            onChange: (value) => pomoConfigure({ breakMinutes: value }),
+          }),
         ),
         h(
           'div',
