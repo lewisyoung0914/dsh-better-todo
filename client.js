@@ -5,13 +5,16 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
 
     const NS = 'todo-panel';
-    const STORAGE_ITEMS = 'dsh.todo-panel.items.v1';
-    const STORAGE_OPEN = 'dsh.todo-panel.open.v1';
-    const STORAGE_POSITION = 'dsh.todo-panel.position.v1';
-    const STORAGE_POMODORO = 'dsh.todo-panel.pomodoro.v1';
 
-    const DB_NAME = 'dsh-todo-panel';
-    const DB_STORE = 'attachments';
+    /** The Host half's state document; see index.js for the file behind it. */
+    const STATE_URL = '/todo-panel/state';
+    /** Keys a previous version kept in localStorage, read once to migrate. */
+    const LEGACY_ITEMS = 'dsh.todo-panel.items.v1';
+    const LEGACY_OPEN = 'dsh.todo-panel.open.v1';
+    const LEGACY_POSITION = 'dsh.todo-panel.position.v1';
+    const LEGACY_POMODORO = 'dsh.todo-panel.pomodoro.v1';
+    const LEGACY_DB_NAME = 'dsh-todo-panel';
+    const LEGACY_DB_STORE = 'attachments';
 
     /** Gap kept between a snapped edge and the window edge, in px. */
     const EDGE_MARGIN = 16;
@@ -328,9 +331,13 @@ window.__ModuleLoader__.load({
       ]);
     }
 
-    // --- storage -----------------------------------------------------------
+    // --- legacy browser storage ---------------------------------------------
+    // Earlier versions kept everything in localStorage and IndexedDB. The
+    // desktop serves the page from a per-launch port, so that database belongs
+    // to an origin that is gone after a restart; these readers exist only to
+    // migrate what a still-running session has into the Host's document.
 
-    function readStored(key) {
+    function readLegacy(key) {
       try {
         return window.localStorage.getItem(key);
       } catch (error) {
@@ -338,11 +345,11 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function writeStored(key, value) {
+    function removeLegacy(key) {
       try {
-        window.localStorage.setItem(key, value);
+        window.localStorage.removeItem(key);
       } catch (error) {
-        /* private mode or storage disabled: keep working in memory */
+        /* private mode or storage disabled: nothing to clean up */
       }
     }
 
@@ -360,35 +367,39 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** Validates one stored item list, dropping entries without a title. */
+    function parseItemsArray(parsed) {
+      if (!Array.isArray(parsed)) return [];
+      const items = [];
+      for (const entry of parsed) {
+        if (!entry) continue;
+        const title =
+          typeof entry.title === 'string'
+            ? entry.title
+            : typeof entry.text === 'string'
+              ? entry.text
+              : '';
+        const clean = title.trim();
+        if (!clean) continue;
+        items.push({
+          id: typeof entry.id === 'string' && entry.id ? entry.id : nextId(),
+          title: clean,
+          detail: typeof entry.detail === 'string' ? entry.detail : '',
+          due: typeof entry.due === 'string' && entry.due ? entry.due : null,
+          createdAt: Number.isFinite(entry.createdAt) ? entry.createdAt : Date.now(),
+          done: Boolean(entry.done),
+          completedAt: Number.isFinite(entry.completedAt) ? entry.completedAt : null,
+          attachment: readAttachment(entry.attachment),
+        });
+      }
+      return items;
+    }
+
     function readItems() {
-      const raw = readStored(STORAGE_ITEMS);
+      const raw = readLegacy(LEGACY_ITEMS);
       if (!raw) return [];
       try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        const items = [];
-        for (const entry of parsed) {
-          if (!entry) continue;
-          const title =
-            typeof entry.title === 'string'
-              ? entry.title
-              : typeof entry.text === 'string'
-                ? entry.text
-                : '';
-          const clean = title.trim();
-          if (!clean) continue;
-          items.push({
-            id: typeof entry.id === 'string' && entry.id ? entry.id : nextId(),
-            title: clean,
-            detail: typeof entry.detail === 'string' ? entry.detail : '',
-            due: typeof entry.due === 'string' && entry.due ? entry.due : null,
-            createdAt: Number.isFinite(entry.createdAt) ? entry.createdAt : Date.now(),
-            done: Boolean(entry.done),
-            completedAt: Number.isFinite(entry.completedAt) ? entry.completedAt : null,
-            attachment: readAttachment(entry.attachment),
-          });
-        }
-        return items;
+        return parseItemsArray(JSON.parse(raw));
       } catch (error) {
         return [];
       }
@@ -399,19 +410,23 @@ window.__ModuleLoader__.load({
       return allowed.indexOf(value) >= 0 ? value : null;
     }
 
+    function parsePosition(parsed) {
+      if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
+        return {
+          left: parsed.left,
+          top: parsed.top,
+          snapX: readSnap(parsed.snapX, true),
+          snapY: readSnap(parsed.snapY, false),
+        };
+      }
+      return null;
+    }
+
     function readPosition() {
-      const raw = readStored(STORAGE_POSITION);
+      const raw = readLegacy(LEGACY_POSITION);
       if (!raw) return null;
       try {
-        const parsed = JSON.parse(raw);
-        if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
-          return {
-            left: parsed.left,
-            top: parsed.top,
-            snapX: readSnap(parsed.snapX, true),
-            snapY: readSnap(parsed.snapY, false),
-          };
-        }
+        return parsePosition(JSON.parse(raw));
       } catch (error) {
         /* fall back to the default corner */
       }
@@ -467,58 +482,30 @@ window.__ModuleLoader__.load({
       return store;
     }
 
-    // --- attachments (IndexedDB keeps blobs out of localStorage) ------------
+    // --- attachments --------------------------------------------------------
+    // One file per item, carried inside the state document as a data URL so it
+    // lives next to the item it belongs to (the Host caps a document at 32 MB).
 
-    function openDb() {
+    /** item id -> data URL, mirrored into the document on every save. */
+    const attachmentFiles = new Map();
+
+    function readFileDataUrl(file) {
       return new Promise((resolve, reject) => {
-        if (!window.indexedDB) {
-          reject(new Error('IndexedDB unavailable'));
+        if (typeof window.FileReader !== 'function') {
+          reject(new Error('FileReader unavailable'));
           return;
         }
-        const request = window.indexedDB.open(DB_NAME, 1);
-        request.onupgradeneeded = () => {
-          const db = request.result;
-          if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-    }
-
-    async function dbPut(key, value) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(DB_STORE, 'readwrite');
-        tx.objectStore(DB_STORE).put(value, key);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
-      });
-    }
-
-    async function dbGet(key) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(DB_STORE, 'readonly');
-        const request = tx.objectStore(DB_STORE).get(key);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-    }
-
-    async function dbDelete(key) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(DB_STORE, 'readwrite');
-        tx.objectStore(DB_STORE).delete(key);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error);
+        const reader = new window.FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(reader.error || new Error('unreadable file'));
+        reader.readAsDataURL(file);
       });
     }
 
     async function putAttachment(key, file) {
       try {
-        await dbPut(key, file);
+        attachmentFiles.set(key, await readFileDataUrl(file));
+        scheduleSave();
         return true;
       } catch (error) {
         console.error('[todo-panel] attachment could not be stored', error);
@@ -527,17 +514,189 @@ window.__ModuleLoader__.load({
     }
 
     function deleteAttachment(key) {
-      dbDelete(key).catch(() => {
-        /* nothing to clean up */
+      if (attachmentFiles.delete(key)) scheduleSave();
+    }
+
+    function attachmentUrl(key) {
+      return attachmentFiles.get(key) || null;
+    }
+
+    /** Reads a blob an earlier version left in IndexedDB, as a data URL. */
+    function readLegacyAttachment(key) {
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
+        if (!window.indexedDB) {
+          finish(null);
+          return;
+        }
+        let request;
+        try {
+          request = window.indexedDB.open(LEGACY_DB_NAME, 1);
+        } catch (error) {
+          finish(null);
+          return;
+        }
+        request.onerror = () => finish(null);
+        request.onupgradeneeded = () => finish(null);
+        request.onsuccess = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(LEGACY_DB_STORE)) {
+            db.close();
+            finish(null);
+            return;
+          }
+          let read;
+          try {
+            read = db.transaction(LEGACY_DB_STORE, 'readonly').objectStore(LEGACY_DB_STORE).get(key);
+          } catch (error) {
+            db.close();
+            finish(null);
+            return;
+          }
+          read.onsuccess = () => {
+            const blob = read.result;
+            db.close();
+            if (!blob || typeof blob !== 'object') {
+              finish(null);
+              return;
+            }
+            readFileDataUrl(blob).then(finish, () => finish(null));
+          };
+          read.onerror = () => {
+            db.close();
+            finish(null);
+          };
+        };
       });
     }
 
-    const openStore = createStore(readStored(STORAGE_OPEN) !== '0', (open) =>
-      writeStored(STORAGE_OPEN, open ? '1' : '0'),
-    );
-    const itemsStore = createStore(readItems(), (items) =>
-      writeStored(STORAGE_ITEMS, JSON.stringify(items)),
-    );
+    const openStore = createStore(true, () => scheduleSave());
+    const itemsStore = createStore([], () => scheduleSave());
+    const positionStore = createStore(null, () => scheduleSave());
+
+    // --- the state document -------------------------------------------------
+    // One snapshot carries every store plus the attachment files. The Host half
+    // writes it to disk; the page reads it once and re-posts after each change.
+
+    /** False until the first load finished: placeholder state must not be saved. */
+    let documentLoaded = false;
+    let saveTimer = null;
+    let saveChain = Promise.resolve();
+
+    function buildDocument() {
+      const attachments = {};
+      for (const [id, dataUrl] of attachmentFiles) attachments[id] = dataUrl;
+      return {
+        version: 1,
+        savedAt: Date.now(),
+        open: openStore.get(),
+        items: itemsStore.get(),
+        position: positionStore.get(),
+        pomodoro: pomodoroStore.get(),
+        attachments,
+      };
+    }
+
+    /** Debounced whole-document save; writes are serialised by an inner chain. */
+    function scheduleSave() {
+      if (!documentLoaded) return;
+      if (saveTimer !== null) window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        saveTimer = null;
+        const body = JSON.stringify(buildDocument());
+        saveChain = saveChain
+          .then(() =>
+            fetch(STATE_URL, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body,
+            }),
+          )
+          .then((response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          })
+          .catch((error) => {
+            console.error('[todo-panel] state could not be saved', error);
+          });
+      }, 400);
+    }
+
+    /** Applies a document to the stores; persist calls are inert while loading. */
+    function applyDocument(document) {
+      if (!document || typeof document !== 'object') return;
+      itemsStore.set(parseItemsArray(document.items));
+      openStore.set(typeof document.open === 'boolean' ? document.open : true);
+      positionStore.set(parsePosition(document.position));
+      pomodoroStore.set(parsePomodoro(document.pomodoro));
+      attachmentFiles.clear();
+      const attachments = document.attachments;
+      if (attachments && typeof attachments === 'object') {
+        for (const [id, value] of Object.entries(attachments)) {
+          if (typeof value === 'string' && value !== '') attachmentFiles.set(id, value);
+        }
+      }
+    }
+
+    /** Loads the Host document, migrating a browser-stored list the first time. */
+    async function loadState() {
+      let document = null;
+      let failure = null;
+      for (let attempt = 0; attempt < 2 && document === null; attempt += 1) {
+        try {
+          const response = await fetch(STATE_URL, {
+            headers: { accept: 'application/json' },
+            cache: 'no-store',
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const parsed = await response.json();
+          if (!parsed || typeof parsed !== 'object') throw new Error('malformed state document');
+          document = parsed;
+        } catch (error) {
+          failure = error;
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        }
+      }
+
+      // Saving without a readable document would replace real data with an
+      // empty list, so a failed load leaves the panel read-only for this run.
+      if (document === null) {
+        console.error('[todo-panel] state could not be loaded; changes stay in memory', failure);
+        return;
+      }
+
+      if (Array.isArray(document.items) && document.items.length > 0) {
+        applyDocument(document);
+        documentLoaded = true;
+        return;
+      }
+
+      const legacyItems = readItems();
+      if (legacyItems.length > 0) {
+        itemsStore.set(legacyItems);
+        openStore.set(readLegacy(LEGACY_OPEN) !== '0');
+        positionStore.set(readPosition());
+        pomodoroStore.set(readPomodoro());
+        for (const item of legacyItems) {
+          if (!item.attachment || !item.attachment.stored) continue;
+          const dataUrl = await readLegacyAttachment(item.id);
+          if (dataUrl) attachmentFiles.set(item.id, dataUrl);
+        }
+        documentLoaded = true;
+        for (const key of [LEGACY_ITEMS, LEGACY_OPEN, LEGACY_POSITION, LEGACY_POMODORO]) {
+          removeLegacy(key);
+        }
+        scheduleSave();
+        return;
+      }
+
+      applyDocument(document);
+      documentLoaded = true;
+    }
 
     // --- pomodoro ----------------------------------------------------------
 
@@ -551,37 +710,40 @@ window.__ModuleLoader__.load({
       completed: 0,
     };
 
-    function readPomodoro() {
+    /** Validates one stored timer snapshot, clamping every number. */
+    function parsePomodoro(parsed) {
       const state = { ...POMO_DEFAULTS };
-      const raw = readStored(STORAGE_POMODORO);
-      if (!raw) return state;
+      if (!parsed || typeof parsed !== 'object') return state;
+      const num = (value, fallback, min, max) =>
+        Number.isFinite(value) ? clamp(value, min, max) : fallback;
+      state.focus = num(parsed.focus, state.focus, POMO_FOCUS_RANGE[0], POMO_FOCUS_RANGE[1]);
+      state.breakMinutes = num(
+        parsed.breakMinutes,
+        state.breakMinutes,
+        POMO_BREAK_RANGE[0],
+        POMO_BREAK_RANGE[1],
+      );
+      state.rounds = num(parsed.rounds, state.rounds, 1, 24);
+      state.completed = num(parsed.completed, 0, 0, 99);
+      state.phase = parsed.phase === 'focus' || parsed.phase === 'break' ? parsed.phase : 'idle';
+      state.endsAt =
+        state.phase === 'idle' ? null : Number.isFinite(parsed.endsAt) ? parsed.endsAt : null;
+      state.pausedLeft =
+        state.phase === 'idle' || !Number.isFinite(parsed.pausedLeft) ? null : parsed.pausedLeft;
+      return state;
+    }
+
+    function readPomodoro() {
+      const raw = readLegacy(LEGACY_POMODORO);
+      if (!raw) return { ...POMO_DEFAULTS };
       try {
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return state;
-        const num = (value, fallback, min, max) =>
-          Number.isFinite(value) ? clamp(value, min, max) : fallback;
-        state.focus = num(parsed.focus, state.focus, POMO_FOCUS_RANGE[0], POMO_FOCUS_RANGE[1]);
-        state.breakMinutes = num(
-          parsed.breakMinutes,
-          state.breakMinutes,
-          POMO_BREAK_RANGE[0],
-          POMO_BREAK_RANGE[1],
-        );
-        state.rounds = num(parsed.rounds, state.rounds, 1, 24);
-        state.completed = num(parsed.completed, 0, 0, 99);
-        state.phase = parsed.phase === 'focus' || parsed.phase === 'break' ? parsed.phase : 'idle';
-        state.endsAt = state.phase === 'idle' ? null : Number.isFinite(parsed.endsAt) ? parsed.endsAt : null;
-        state.pausedLeft =
-          state.phase === 'idle' || !Number.isFinite(parsed.pausedLeft) ? null : parsed.pausedLeft;
-        return state;
+        return parsePomodoro(JSON.parse(raw));
       } catch (error) {
-        return state;
+        return { ...POMO_DEFAULTS };
       }
     }
 
-    const pomodoroStore = createStore(readPomodoro(), (state) =>
-      writeStored(STORAGE_POMODORO, JSON.stringify(state)),
-    );
+    const pomodoroStore = createStore({ ...POMO_DEFAULTS }, () => scheduleSave());
 
     function pomoLengthMs(state, phase) {
       const minutes = phase === 'break' ? state.breakMinutes : state.focus;
@@ -1286,9 +1448,19 @@ window.__ModuleLoader__.load({
       const panelRef = React.useRef(null);
       const downloadRef = React.useRef(null);
       const dragRef = React.useRef(null);
-      const positionRef = React.useRef(readPosition());
-      const [position, setPosition] = React.useState(positionRef.current);
+      const [position, setStoredPosition] = positionStore.use();
+      const positionRef = React.useRef(position);
       const [dragging, setDragging] = React.useState(false);
+
+      React.useEffect(() => {
+        positionRef.current = position;
+      }, [position]);
+
+      /** Every position change goes through the store, which saves the document. */
+      const setPosition = (next) => {
+        positionRef.current = next;
+        setStoredPosition(next);
+      };
 
       React.useEffect(() => {
         const onResize = () => {
@@ -1306,7 +1478,6 @@ window.__ModuleLoader__.load({
           ) {
             positionRef.current = next;
             setPosition(next);
-            writeStored(STORAGE_POSITION, JSON.stringify(next));
           }
         };
         window.addEventListener('resize', onResize);
@@ -1386,19 +1557,10 @@ window.__ModuleLoader__.load({
         } catch (error) {
           /* pointer already released */
         }
-        if (positionRef.current) {
-          writeStored(STORAGE_POSITION, JSON.stringify(positionRef.current));
-        }
       };
 
       const resetPosition = () => {
-        positionRef.current = null;
         setPosition(null);
-        try {
-          window.localStorage.removeItem(STORAGE_POSITION);
-        } catch (error) {
-          /* storage disabled: the CSS default still applies */
-        }
       };
 
       const toggleDone = (id) => {
@@ -1419,14 +1581,12 @@ window.__ModuleLoader__.load({
       const openAttachment = async (item) => {
         if (!item.attachment || !item.attachment.stored) return;
         try {
-          const blob = await dbGet(item.id);
           const anchor = downloadRef.current;
-          if (!blob || !anchor) return;
-          const url = URL.createObjectURL(blob);
+          const url = attachmentUrl(item.id);
+          if (!url || !anchor) return;
           anchor.href = url;
           anchor.download = item.attachment.name || 'attachment';
           anchor.click();
-          window.setTimeout(() => URL.revokeObjectURL(url), 30000);
         } catch (error) {
           console.error('[todo-panel] attachment could not be opened', error);
         }
@@ -1780,6 +1940,9 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
+        // The Host owns the document; load it before anything can be edited.
+        void loadState();
+
         const locale = ctx.get('locale');
         if (locale) {
           activeLocale = locale;

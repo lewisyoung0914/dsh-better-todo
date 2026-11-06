@@ -9,10 +9,10 @@ A todo panel for the DeepSeek Harness Web UI. It floats above the right side of 
 - **Floating panel, four-edge snapping** — drag the header to move it; release and it settles against the nearest window edge (left / right / top / bottom) so it never ends up half off-screen. Double-click the header to reset the position.
 - **Sidebar launcher** — a `Todo` row sits beside Settings and shows how many items are still open. The panel remembers whether it was open.
 - **Two views** — `Home` groups items into **Today** (due today) and **More** (everything else, including items with no due date), both collapsible. `All` splits **unfinished** and **finished**; the finished list shows 10 at a time and loads 20 more per click.
-- **Full item form** — `+` opens a page for the title, details, due time and one attachment (kept in IndexedDB). Clicking an item reopens the same page for editing; attachments can be replaced or removed.
+- **Full item form** — `+` opens a page for the title, details, due time and one attachment. Clicking an item reopens the same page for editing; attachments can be replaced or removed.
 - **Pomodoro timer** — the clock in the panel header opens a timer page: focus length (presets 15 / 30 / 45 / 60 minutes, or any value from 1 to 180 typed by hand), a round count (1–12) and a break interval (presets 3 / 5 / 10 / 15, or any value from 1 to 120). Focus and break alternate automatically, and each phase end raises a Windows notification. The countdown keeps running — and stays visible in the header — while you work in the list.
 - **Bilingual UI** — Chinese and English, following the app's language setting.
-- **Local only** — items live in `localStorage`, attachments in IndexedDB. Nothing is uploaded anywhere.
+- **Survives restarts** — the list, the attachment files, the panel position and the timer settings live in one JSON document under `~/.dsh/todo-panel/`, written by the plugin's Host half. Nothing is uploaded anywhere.
 
 ## Install
 
@@ -53,15 +53,23 @@ Two things worth knowing:
 
 ## Storage
 
-| Key | Where | Contents |
-| --- | --- | --- |
-| `dsh.todo-panel.items.v1` | `localStorage` | items: title, details, due time, state, attachment metadata |
-| `dsh.todo-panel.open.v1` | `localStorage` | whether the panel is open |
-| `dsh.todo-panel.position.v1` | `localStorage` | panel position and snapped edge |
-| `dsh.todo-panel.pomodoro.v1` | `localStorage` | timer settings and the running phase |
-| `dsh-todo-panel` / `attachments` | IndexedDB | attachment blobs, keyed by item id |
+Everything lives in one JSON document that the plugin's Host half owns:
 
-Clearing the site data removes everything. Items are per browser profile, not per DSH account.
+```
+<DSH_HOME>/todo-panel/state.json      # ~/.dsh/todo-panel/state.json by default
+```
+
+The page reads and writes it through `/todo-panel/state` on its own origin. That indirection is deliberate: the desktop picks a fresh web port on every launch, and `localStorage`/IndexedDB are partitioned by origin, so a browser-stored list would be a different — empty — database after each restart.
+
+| Field | Contents |
+| --- | --- |
+| `items` | title, details, due time, completion state, attachment metadata |
+| `open` | whether the panel is open |
+| `position` | panel position and the snapped edge |
+| `pomodoro` | timer settings and the running phase |
+| `attachments` | one data URL per item id |
+
+The file is plain JSON: back it up, read it, or delete it. It is per profile, not per DSH account, and nothing leaves the machine. A browser session that still holds data from an earlier version migrates it on first load and then clears the old keys.
 
 ## Development
 
@@ -69,7 +77,7 @@ No build step — the plugin is plain JavaScript loaded as an ES module.
 
 | File | Role |
 | --- | --- |
-| `index.js` | host half; `apply()` is intentionally empty — the plugin has no server side |
+| `index.js` | Host half: serves `/todo-panel/state`, keeps the JSON document on disk |
 | `client.js` | the whole UI: stores, the panel, the item form, the pomodoro engine, CSS |
 | `cordis.patch.yml` | the one row this bundle inserts into the profile |
 | `locale/zh.json`, `locale/en.json` | market metadata (title, description) |
