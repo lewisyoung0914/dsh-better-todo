@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/todo-panel',
+  id: 'dsh-better-todo',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
