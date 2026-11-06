@@ -44,7 +44,6 @@ Requires a DSH build that provides the web client slots `shell.overlay` and `sid
 | Complete an item | the checkbox on its left |
 | Open the timer | the clock (or the running countdown) in the panel header |
 | Pause / resume the countdown | the ⏸ / ▶ beside it |
-| Check the system toast | **Test notification** at the foot of the timer page |
 | Manage the list without touching the mouse | type `/todo` in the composer |
 
 Inside the timer page, `Start` / `Pause` control the current phase and `Reset` returns to idle with the counter cleared. Settings can only be changed while the timer is idle, so a running countdown never jumps.
@@ -56,7 +55,7 @@ A phase end does two things so you cannot miss it:
 1. an alert appears in the panel (reopening it when it was closed) with **Start break / Start focus** and **Later**;
 2. a Windows toast is raised.
 
-The toast goes through the page's `Notification` API first; when that is unavailable — no permission, or a host that cannot show one — the plugin's Host half falls back to a toast from PowerShell. Permission is requested the first time you press `Start`, and the timer page has a **Test notification** button so you can check the system side by hand.
+The toast goes through the page's `Notification` API first; when that is unavailable — no permission, or a host that cannot show one — the plugin's Host half falls back to a toast from PowerShell. Permission is requested the first time you press `Start`.
 
 Known limits:
 

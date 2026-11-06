@@ -97,11 +97,6 @@ window.__ModuleLoader__.load({
         pomoPausedTag: '已暂停',
         pomoBreakHint: '休息 {n} 分钟',
         pomoFocusHint: '专注 {n} 分钟',
-        pomoTest: '测试通知',
-        pomoTestOk: '已发送测试通知',
-        pomoTestFail: '通知没能发出',
-        pomoNoticeHint: '系统通知未开启，阶段结束只会在面板里提示',
-        pomoEnableNotice: '开启通知',
         attachmentMissing: '附件已不可用',
         detailEmpty: '没有更多说明',
         previewImage: '点击放大查看',
@@ -169,11 +164,6 @@ window.__ModuleLoader__.load({
         pomoPausedTag: 'Paused',
         pomoBreakHint: 'Break {n} min',
         pomoFocusHint: 'Focus {n} min',
-        pomoTest: 'Test notification',
-        pomoTestOk: 'Test notification sent',
-        pomoTestFail: 'Notification failed',
-        pomoNoticeHint: 'System notifications are off — phase ends only show in the panel',
-        pomoEnableNotice: 'Enable notifications',
         attachmentMissing: 'Attachment unavailable',
         detailEmpty: 'No further details',
         previewImage: 'Click to enlarge',
@@ -270,9 +260,6 @@ window.__ModuleLoader__.load({
 .dshtodo-alert-actions>.dshtodo-primary,.dshtodo-alert-actions>.dshtodo-secondary{height:26px;font-size:11.5px}
 .dshtodo-pomo-hint{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
 .dshtodo-pomo-page.is-waiting .dshtodo-pomo-clock{color:var(--dsw-alias-brand-primary)}
-.dshtodo-pomo-notice{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
-.dshtodo-pomo-notice-text{font-size:11px;color:var(--dsw-alias-label-secondary)}
-.dshtodo-linkbtn{padding:0;border:none;background:transparent;color:var(--dsw-alias-brand-primary);font-family:inherit;font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .dshtodo-pomo-page{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 14px 12px}
 .dshtodo-pomo-clock{font-size:34px;font-weight:600;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:.01em;color:var(--dsw-alias-label-primary)}
 .dshtodo-pomo-page.is-running .dshtodo-pomo-clock{color:var(--dsw-alias-brand-primary)}
@@ -974,16 +961,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** `granted` / `denied` / `default`, or `unsupported` where the API is absent. */
-    function pomodoroPermission() {
-      try {
-        if (typeof window.Notification !== 'function') return 'unsupported';
-        return window.Notification.permission;
-      } catch (error) {
-        return 'unsupported';
-      }
-    }
-
     /** Windows toast through the Host, for when the renderer cannot show one. */
     function notifyThroughHost(body) {
       try {
@@ -1400,7 +1377,6 @@ window.__ModuleLoader__.load({
       const paused = pomoPaused(state);
       const idle = state.phase === 'idle';
       const breakNext = state.phase === 'focus-end';
-      const [notice, setNotice] = React.useState('');
       const phaseLabel = idle
         ? t('pomoReady')
         : state.phase === 'break' || state.phase === 'break-end'
@@ -1422,17 +1398,6 @@ window.__ModuleLoader__.load({
           : paused
             ? t('pomoResume')
             : t('pomoStart');
-      const permission = pomodoroPermission();
-
-      const testNotification = () => {
-        const body = t('pomoTestOk');
-        if (showRendererNotification(body)) {
-          setNotice(t('pomoTestOk'));
-          return;
-        }
-        notifyThroughHost(body);
-        setNotice(t('pomoTestFail'));
-      };
 
       return h(
         'div',
@@ -1522,33 +1487,6 @@ window.__ModuleLoader__.load({
             },
             t('pomoReset'),
           ),
-        ),
-        h(
-          'div',
-          { className: 'dshtodo-pomo-notice' },
-          permission === 'granted'
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dshtodo-linkbtn',
-                  onClick: testNotification,
-                },
-                t('pomoTest'),
-              )
-            : h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dshtodo-linkbtn',
-                  onClick: () => {
-                    ensurePomodoroPermission();
-                    testNotification();
-                  },
-                },
-                t('pomoEnableNotice'),
-              ),
-          h('span', { className: 'dshtodo-pomo-notice-text' }, notice || (permission === 'granted' ? '' : t('pomoNoticeHint'))),
         ),
       );
     }
