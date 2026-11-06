@@ -90,6 +90,136 @@ function mimeFor(name) {
   return MIME_TYPES[extension] ?? 'application/octet-stream';
 }
 
+/** Shown by `/todo help` and appended to every rejected argument. */
+const TODO_COMMAND_USAGE = [
+  '/todo                     未完成的条目',
+  '/todo all                 全部条目',
+  '/todo done                已完成的条目',
+  '/todo add <标题>          新增（可用 `标题 | 详情 | 截止时间`）',
+  '/todo finish <序号|id>    勾掉',
+  '/todo undo <序号|id>      取消勾选',
+  '/todo remove <序号|id>    删除',
+].join('\n');
+
+/** One numbered row; the number is the item's position in the stored list. */
+function todoCommandLine(item, index) {
+  const parts = [`${index + 1}. [${item.done === true ? '已完成' : '未完成'}] ${item.title}`];
+  if (typeof item.due === 'string' && item.due !== '') parts.push(`截止 ${item.due.replace('T', ' ')}`);
+  parts.push(`id ${item.id}`);
+  let line = parts.join(' · ');
+  if (typeof item.detail === 'string' && item.detail.trim() !== '') {
+    line += `\n   详情：${item.detail.trim().replace(/\n/g, '\n   ')}`;
+  }
+  if (item.attachment && typeof item.attachment === 'object') {
+    line += `\n   附件：${item.attachment.name || '(未命名)'}`;
+  }
+  return line;
+}
+
+/** Accepts a 1-based position, a full id, or an unambiguous id prefix. */
+function findTodoIndex(items, token) {
+  const wanted = String(token ?? '').trim();
+  if (wanted === '') return -1;
+  if (/^\d+$/.test(wanted)) {
+    const index = Number(wanted) - 1;
+    return index >= 0 && index < items.length ? index : -1;
+  }
+  const exact = items.findIndex((item) => item && item.id === wanted);
+  if (exact >= 0) return exact;
+  const matches = items.filter((item) => item && String(item.id).startsWith(wanted));
+  return matches.length === 1 ? items.indexOf(matches[0]) : -1;
+}
+
+/**
+ * The `/todo` command's core, kept pure so the arguments can be checked without
+ * a runtime: it answers with the text to show and, when the list changes, the
+ * document to persist.
+ */
+export function runTodoCommand(document, raw) {
+  const doc = asDocument(document);
+  const items = doc.items;
+  const input = String(raw ?? '').trim();
+  const space = input.search(/\s/);
+  const verb = (space === -1 ? input : input.slice(0, space)).toLowerCase();
+  const rest = space === -1 ? '' : input.slice(space + 1).trim();
+  const open = items.filter((item) => item && item.done !== true);
+  const summary = `Todo 面板：共 ${items.length} 条，未完成 ${open.length} 条，已完成 ${
+    items.length - open.length
+  } 条。`;
+
+  if (verb === '' || verb === 'open' || verb === 'all' || verb === 'done') {
+    const wanted =
+      verb === 'all'
+        ? items
+        : items.filter((item) => (verb === 'done' ? item.done === true : item.done !== true));
+    if (wanted.length === 0) {
+      const empty = verb === 'done' ? '还没有已完成的条目。' : '没有未完成的条目。';
+      return { text: `${summary}\n\n${empty}`, document: null };
+    }
+    const lines = wanted.map((item) => todoCommandLine(item, items.indexOf(item)));
+    return { text: `${summary}\n\n${lines.join('\n')}`, document: null };
+  }
+
+  if (verb === 'add') {
+    if (rest === '') {
+      return { text: `要加什么？例子：/todo add 写周报\n\n${TODO_COMMAND_USAGE}`, document: null };
+    }
+    const [titlePart = '', detailPart = '', duePart = ''] = rest
+      .split('|')
+      .map((part) => part.trim());
+    const item = {
+      id: `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      title: (titlePart || rest).slice(0, 200),
+      detail: detailPart,
+      due: duePart,
+      createdAt: Date.now(),
+      done: false,
+      completedAt: null,
+    };
+    return {
+      text: `已添加：${item.title}\n${summary}`,
+      document: { ...doc, items: items.concat([item]) },
+    };
+  }
+
+  if (verb === 'finish' || verb === 'undo' || verb === 'remove') {
+    const index = findTodoIndex(items, rest);
+    if (index < 0) {
+      return {
+        text: `找不到「${rest || '（空）'}」。先发 /todo 看序号，序号从 1 开始。\n\n${TODO_COMMAND_USAGE}`,
+        document: null,
+      };
+    }
+    const target = items[index];
+    if (verb === 'remove') {
+      const attachments = { ...doc.attachments };
+      delete attachments[target.id];
+      return {
+        text: `已删除：${target.title}`,
+        document: {
+          ...doc,
+          items: items.filter((_, position) => position !== index),
+          attachments,
+        },
+      };
+    }
+    const done = verb === 'finish';
+    const next = items.map((item, position) =>
+      position === index
+        ? { ...item, done, completedAt: done ? new Date().toISOString() : null }
+        : item,
+    );
+    return {
+      text: `${done ? '已勾掉' : '已恢复'}：${target.title}`,
+      document: { ...doc, items: next },
+    };
+  }
+
+  if (verb === 'help' || verb === '?') return { text: TODO_COMMAND_USAGE, document: null };
+  return { text: `不认识的子命令「${verb}」。\n\n${TODO_COMMAND_USAGE}`, document: null };
+}
+
+
 /**
  * Runs inside the toast's own PowerShell process. The title and body travel in
  * the environment, never in this text: a task called `"; Remove-Item ...` must
@@ -379,6 +509,40 @@ export function apply(ctx) {
         );
       }
     }
+  }
+
+  // The slash menu lists commands, not tools; `/todo` is what a person types.
+  const commands = ctx.get('commands');
+  if (commands === undefined) {
+    console.warn('[todo-panel] command registry missing; /todo will not be listed');
+  } else {
+    ctx.effect(
+      () =>
+        commands.register({
+          name: 'todo',
+          description: '查看和管理 Todo 面板（all / add / finish / undo / remove）',
+          input: { hint: '[all | add <标题> | finish <序号> | undo <序号> | remove <序号>]' },
+          recordInput: false,
+          handler: async (invocation) => {
+            try {
+              const outcome = await transact((document) => {
+                const result = runTodoCommand(document, invocation.rawInput);
+                // A read-only branch must not cost a revision.
+                return result.document
+                  ? { replace: result.document, value: result.text }
+                  : { skip: true, value: result.text };
+              });
+              return { kind: 'success', text: String(outcome.value ?? '') };
+            } catch (error) {
+              return {
+                kind: 'error',
+                text: String(error && error.message ? error.message : error),
+              };
+            }
+          },
+        }),
+      'todo-panel: /todo command',
+    );
   }
 
   const tools = ctx.get('tools');

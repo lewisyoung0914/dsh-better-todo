@@ -84,6 +84,22 @@ Synchronisation uses the document's `rev` counter: the panel saves with the revi
 
 The tools register when the plugin loads, so after installing it or editing `index.js`, reload the plugin (turn it off and on again in the plugin list) or restart DSH.
 
+## Slash command
+
+The `todo_*` entries above are **agent tools**; the `/` menu in the composer lists **commands**, a separate registry, so tools never show up there. For typing at the list directly, the plugin registers `/todo`:
+
+| Input | Effect |
+| --- | --- |
+| `/todo` | unfinished items, with a position and an id |
+| `/todo all` | every item |
+| `/todo done` | finished items |
+| `/todo add Write the report` | add one; `/todo add Write the report \| after lunch \| 2026-11-07T18:00` also sets details and a due time |
+| `/todo finish 3` | tick item 3 (an id or id prefix works too) |
+| `/todo undo 3` | untick it |
+| `/todo remove 3` | delete it, attachment included |
+
+Command changes travel through the same `rev` counter, so the panel syncs within seconds, and the result is printed in the conversation without spending a model call.
+
 ## Storage
 
 Everything lives in one JSON document that the plugin's Host half owns:
