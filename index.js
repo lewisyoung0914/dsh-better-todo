@@ -66,12 +66,6 @@ function sameOrigin(request) {
 }
 
 export function apply(ctx) {
-  const webServer = ctx.get('webServer');
-  if (webServer === undefined) {
-    console.warn('[todo-panel] web server service missing; the panel will not persist anything');
-    return;
-  }
-
   const file = documentPath();
   let writes = Promise.resolve(true);
 
@@ -102,7 +96,9 @@ export function apply(ctx) {
     return writes;
   };
 
-  const dispose = webServer.register({
+  // Kept as a function so the tool below still works on a host without a web server.
+  const registerStateRoute = (webServer) =>
+    webServer.register({
     kind: 'prefix',
     path: ROUTE_PREFIX,
     handler: async (request, response) => {
@@ -156,7 +152,21 @@ export function apply(ctx) {
     },
   });
 
-  ctx.effect(() => () => dispose(), 'todo-panel: state route');
+  const webServer = ctx.get('webServer');
+  if (webServer === undefined) {
+    console.warn('[todo-panel] web server service missing; the panel cannot load or save its state');
+  } else {
+    try {
+      ctx.effect(() => registerStateRoute(webServer), 'todo-panel: state route');
+    } catch (error) {
+      // An earlier load of this plugin already owns the route and still answers
+      // it; failing here would take the panel and the tool down with it.
+      console.warn(
+        '[todo-panel] the state route is already registered; keeping the existing one:',
+        String(error && error.message ? error.message : error),
+      );
+    }
+  }
 
   const tools = ctx.get('tools');
   if (tools === undefined) {
