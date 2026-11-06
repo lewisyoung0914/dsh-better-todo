@@ -14,6 +14,8 @@ A todo panel for the DeepSeek Harness Web UI. It floats above the right side of 
 - **Pomodoro timer** — the clock in the panel header opens a timer page: focus length (presets 15 / 30 / 45 / 60 minutes, or any value from 1 to 180 typed by hand), a round count (1–12) and a break interval (presets 3 / 5 / 10 / 15, or any value from 1 to 120). The countdown stays visible in the header, with a **pause / resume** button right beside it that freezes the remaining time and continues from there.
 - **A phase ends, then waits for you** — when focus or break hits zero it does not switch phases on its own: the countdown stops, an alert appears in the panel (reopening it if it was closed) and Windows gets a toast. The next phase starts when you press **Start break** or **Start focus**; **Later** tucks the alert away.
 - **Bilingual UI** — Chinese and English, following the app's language setting.
+- **The agent can read and write** — the plugin registers `todo_list`, `todo_add`, `todo_update`, `todo_remove` and `todo_attach`, so "tick that one off", "add a note", "attach this screenshot" all work by asking; the panel syncs a few seconds later.
+- **`/todo` in the composer** — for fast entry: `/todo` lists, `/todo add Write the report`, `/todo finish 3`. Parsed by fixed rules, so it costs no model call.
 - **Survives restarts** — the list, the attachment files, the panel position and the timer settings live in one JSON document under `~/.dsh/todo-panel/`, written by the plugin's Host half. Nothing is uploaded anywhere.
 
 ## Install
@@ -41,6 +43,9 @@ Requires a DSH build that provides the web client slots `shell.overlay` and `sid
 | Edit an item | click its text |
 | Complete an item | the checkbox on its left |
 | Open the timer | the clock (or the running countdown) in the panel header |
+| Pause / resume the countdown | the ⏸ / ▶ beside it |
+| Check the system toast | **Test notification** at the foot of the timer page |
+| Manage the list without touching the mouse | type `/todo` in the composer |
 
 Inside the timer page, `Start` / `Pause` control the current phase and `Reset` returns to idle with the counter cleared. Settings can only be changed while the timer is idle, so a running countdown never jumps.
 
@@ -116,6 +121,8 @@ The page reads and writes it through `/todo-panel/state` on its own origin. That
 
 | Field | Contents |
 | --- | --- |
+| `rev` | revision counter, bumped by every write; the page watches it to notice other writers |
+| `savedAt` | timestamp of the last write |
 | `items` | title, details, due time, completion state, attachment metadata |
 | `open` | whether the panel is open |
 | `position` | panel position and the snapped edge |
@@ -124,19 +131,31 @@ The page reads and writes it through `/todo-panel/state` on its own origin. That
 
 The file is plain JSON: back it up, read it, or delete it. It is per profile, not per DSH account, and nothing leaves the machine. A browser session that still holds data from an earlier version migrates it on first load and then clears the old keys.
 
+The Host half also serves two endpoints the page uses: `/todo-panel/state` for the document and `/todo-panel/notify` for the Windows toast. Both accept same-origin requests only.
+
 ## Development
 
 No build step — the plugin is plain JavaScript loaded as an ES module.
 
 | File | Role |
 | --- | --- |
-| `index.js` | Host half: serves `/todo-panel/state`, keeps the JSON document on disk |
-| `client.js` | the whole UI: stores, the panel, the item form, the pomodoro engine, CSS |
+| `index.js` | Host half: the JSON document and its `rev` protocol, `/todo-panel/state` and `/todo-panel/notify`, the five agent tools, the `/todo` command |
+| `client.js` | the whole UI: stores, the panel, the detail and edit pages, the pomodoro engine, notifications, CSS |
 | `cordis.patch.yml` | the one row this bundle inserts into the profile |
 | `locale/zh.json`, `locale/en.json` | market metadata (title, description) |
 | `icon.svg` | plugin icon |
 
-There is no JSX: components are built with `React.createElement` (aliased to `h`). Edits to `client.js` are picked up by the running app through hot reload; a change to `cordis.patch.yml` or `package.json` needs the bundle reinstalled.
+There is no JSX: components are built with `React.createElement` (aliased to `h`). Edits to `client.js` are picked up by the running app through hot reload; a change to `index.js` needs the plugin reloaded (turn it off and on in the plugin list), and a change to `cordis.patch.yml` or `package.json` needs the bundle reinstalled.
+
+## Changelog
+
+- `1.6.1` — `/todo` accepts everyday wording (完成 / 删掉 / 已完成 …) and turns a whole sentence into a task.
+- `1.6.0` — the `/todo` slash command.
+- `1.5.0` — agent writes (add / update / remove / attach), the `rev` protocol, a pomodoro phase that waits for a click, the header pause button, Host toasts through PowerShell.
+- `1.4.0` — the read-only `todo_list` tool.
+- `1.3.0` — clicking an item opens a read-only detail page; **Edit** switches to the form; images open full-screen.
+- `1.2.0` — the document moved to the Host half (it used to live in the browser and vanished with each port change).
+- `1.1.1` — fixed the client module id, which crashed the boot with a duplicate registration.
 
 ## License
 
