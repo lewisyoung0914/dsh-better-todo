@@ -99,7 +99,39 @@ const TODO_COMMAND_USAGE = [
   '/todo finish <序号|id>    勾掉',
   '/todo undo <序号|id>      取消勾选',
   '/todo remove <序号|id>    删除',
+  '',
+  '其余写法按新增处理：/todo 把 gzcode 放到内网测试',
 ].join('\n');
+
+/**
+ * Everyday wording that maps onto a subcommand, so a rushed line still lands.
+ * Longer aliases are matched first, otherwise `已完成` would read as `完成`.
+ */
+const TODO_COMMAND_ALIASES = new Map(
+  Object.entries({
+    列表: 'open',
+    查看: 'open',
+    全部: 'all',
+    所有: 'all',
+    已完成: 'done',
+    新增: 'add',
+    添加: 'add',
+    加上: 'add',
+    记一下: 'add',
+    记录: 'add',
+    提醒我: 'add',
+    勾掉: 'finish',
+    完成: 'finish',
+    做完: 'finish',
+    搞定: 'finish',
+    取消勾选: 'undo',
+    恢复: 'undo',
+    删除: 'remove',
+    删掉: 'remove',
+    移除: 'remove',
+    帮助: 'help',
+  }).sort((left, right) => right[0].length - left[0].length),
+);
 
 /** One numbered row; the number is the item's position in the stored list. */
 function todoCommandLine(item, index) {
@@ -131,6 +163,13 @@ function findTodoIndex(items, token) {
 }
 
 /**
+ * Leading filler a sentence carries when someone writes a task out loud
+ * ("今天新增一条任务，…"), so the stored title is the task and not the sentence.
+ */
+const TODO_COMMAND_FILLER =
+  /^(?:今天|明天|后天|现在|稍后|帮我|请|麻烦)?\s*(?:新增|添加|新建|添加一条|加|记一下|记录|提醒我)\s*(?:一条|一个|个)?\s*(?:任务|待办|todo)?\s*[，,：:、\-]?\s*/i;
+
+/**
  * The `/todo` command's core, kept pure so the arguments can be checked without
  * a runtime: it answers with the text to show and, when the list changes, the
  * document to persist.
@@ -140,12 +179,33 @@ export function runTodoCommand(document, raw) {
   const items = doc.items;
   const input = String(raw ?? '').trim();
   const space = input.search(/\s/);
-  const verb = (space === -1 ? input : input.slice(0, space)).toLowerCase();
-  const rest = space === -1 ? '' : input.slice(space + 1).trim();
+  const head = space === -1 ? input : input.slice(0, space);
+  const tail = space === -1 ? '' : input.slice(space + 1).trim();
   const open = items.filter((item) => item && item.done !== true);
   const summary = `Todo 面板：共 ${items.length} 条，未完成 ${open.length} 条，已完成 ${
     items.length - open.length
   } 条。`;
+
+  const VERBS = ['', 'open', 'list', 'all', 'done', 'add', 'finish', 'undo', 'remove', 'help', '?'];
+  const canonical = (word) => {
+    const plain = word.toLowerCase();
+    if (VERBS.indexOf(plain) >= 0) return plain === 'list' ? 'open' : plain;
+    return TODO_COMMAND_ALIASES.get(word) ?? null;
+  };
+
+  let verb = canonical(head);
+  let rest = tail;
+  let guessed = false;
+  if (verb === null) {
+    // Someone wrote a sentence instead of a subcommand. A short ASCII word is a
+    // typo, anything else — including 写周报 — is a task in their own words.
+    if (space === -1 && /^[a-z0-9_-]+$/i.test(input) && input.length < 4) {
+      return { text: `不认识的子命令「${head}」。\n\n${TODO_COMMAND_USAGE}`, document: null };
+    }
+    verb = 'add';
+    rest = input;
+    guessed = true;
+  }
 
   if (verb === '' || verb === 'open' || verb === 'all' || verb === 'done') {
     const wanted =
@@ -167,9 +227,10 @@ export function runTodoCommand(document, raw) {
     const [titlePart = '', detailPart = '', duePart = ''] = rest
       .split('|')
       .map((part) => part.trim());
+    const spoken = rest.replace(TODO_COMMAND_FILLER, '').trim();
     const item = {
       id: `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-      title: (titlePart || rest).slice(0, 200),
+      title: ((guessed ? spoken : titlePart) || titlePart || rest).slice(0, 200),
       detail: detailPart,
       due: duePart,
       createdAt: Date.now(),
@@ -177,7 +238,7 @@ export function runTodoCommand(document, raw) {
       completedAt: null,
     };
     return {
-      text: `已添加：${item.title}\n${summary}`,
+      text: `${guessed ? '没匹配到子命令，按新增处理。\n' : ''}已添加：${item.title}\n${summary}`,
       document: { ...doc, items: items.concat([item]) },
     };
   }
@@ -216,7 +277,7 @@ export function runTodoCommand(document, raw) {
   }
 
   if (verb === 'help' || verb === '?') return { text: TODO_COMMAND_USAGE, document: null };
-  return { text: `不认识的子命令「${verb}」。\n\n${TODO_COMMAND_USAGE}`, document: null };
+  return { text: `不认识的子命令「${head}」。\n\n${TODO_COMMAND_USAGE}`, document: null };
 }
 
 

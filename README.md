@@ -98,6 +98,10 @@ The `todo_*` entries above are **agent tools**; the `/` menu in the composer lis
 | `/todo undo 3` | untick it |
 | `/todo remove 3` | delete it, attachment included |
 
+Everyday wording works too: `/todo 完成 3`, `/todo 删掉 2`, `/todo 已完成`, or a whole sentence — `/todo 今天新增一条任务，把gzcode放到内网测试` drops the leading filler and stores 「把gzcode放到内网测试」.
+
+The command is **parsed by fixed rules, not understood**: for anything that needs a real reading ("move item 3 to tomorrow afternoon and add a note"), send a normal message instead and let the agent use the `todo_*` tools — no slash.
+
 Command changes travel through the same `rev` counter, so the panel syncs within seconds, and the result is printed in the conversation without spending a model call.
 
 ## Storage
