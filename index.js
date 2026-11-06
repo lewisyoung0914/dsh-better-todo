@@ -157,4 +157,144 @@ export function apply(ctx) {
   });
 
   ctx.effect(() => () => dispose(), 'todo-panel: state route');
+
+  const tools = ctx.get('tools');
+  if (tools === undefined) {
+    console.warn('[todo-panel] tool registry missing; the agent cannot read the todo list');
+    return;
+  }
+
+  /**
+   * One entry of the panel, flattened for the model: the same fields the panel
+   * shows, with the attachment reduced to its name and size because the data
+   * URL would blow up the transcript.
+   */
+  const toToolItem = (item) => {
+    const flat = {
+      id: String(item.id ?? ''),
+      title: String(item.title ?? ''),
+      detail: typeof item.detail === 'string' ? item.detail : '',
+      due: typeof item.due === 'string' ? item.due : '',
+      done: item.done === true,
+      completedAt: typeof item.completedAt === 'string' ? item.completedAt : '',
+    };
+    if (item.attachment && typeof item.attachment === 'object') {
+      flat.attachment = {
+        name: String(item.attachment.name ?? ''),
+        size: Number(item.attachment.size) || 0,
+      };
+    }
+    return flat;
+  };
+
+  const describeItems = (items) => {
+    if (items.length === 0) return '待办列表是空的。';
+    const lines = items.map((item, index) => {
+      const parts = [`${index + 1}. [${item.done ? '已完成' : '未完成'}] ${item.title}`];
+      if (item.due) parts.push(`截止 ${item.due.replace('T', ' ')}`);
+      parts.push(`id ${item.id}`);
+      let line = parts.join(' · ');
+      if (item.detail) line += `\n   详情：${item.detail.replace(/\n/g, '\n   ')}`;
+      if (item.attachment) line += `\n   附件：${item.attachment.name || '(未命名)'}`;
+      return line;
+    });
+    return lines.join('\n');
+  };
+
+  ctx.effect(
+    () =>
+      tools.register({
+        name: 'todo_list',
+        description:
+          "Read the user's Todo panel: the tasks kept by the dsh-better-todo plugin, with title, details, due time, completion state and attachment names. Call it whenever the user refers to their todos, asks what is due, or asks you to plan around them. This tool is read-only; it never changes the list.",
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            status: {
+              type: 'string',
+              enum: ['all', 'open', 'done'],
+              description: 'Which tasks to return: all (default), open (not completed), or done.',
+            },
+            limit: {
+              type: 'integer',
+              description: 'Maximum number of tasks to return, 1-200. Defaults to 100.',
+            },
+          },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['total', 'open', 'done', 'items'],
+            properties: {
+              total: { type: 'integer' },
+              open: { type: 'integer' },
+              done: { type: 'integer' },
+              items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['id', 'title', 'done'],
+                  properties: {
+                    id: { type: 'string' },
+                    title: { type: 'string' },
+                    detail: { type: 'string' },
+                    due: { type: 'string' },
+                    done: { type: 'boolean' },
+                    completedAt: { type: 'string' },
+                    attachment: {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['name', 'size'],
+                      properties: {
+                        name: { type: 'string' },
+                        size: { type: 'integer' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          render: (args, value) => {
+            const filter = typeof args.status === 'string' ? args.status : 'all';
+            const label = filter === 'all' ? '全部' : filter === 'open' ? '未完成' : '已完成';
+            const listed = Array.isArray(value.items) ? value.items.length : 0;
+            const head = `Todo 面板预览（${label}）：下面列出 ${listed} 条；整个清单共 ${value.total} 条，其中未完成 ${value.open} 条，已完成 ${value.done} 条。`;
+            return [
+              {
+                type: 'text',
+                text: `${head}\n\n${describeItems(value.items)}`,
+              },
+            ];
+          },
+        },
+        async execute(args) {
+          const document = (await readDocument()) ?? { items: [] };
+          const raw = Array.isArray(document.items) ? document.items : [];
+          const all = raw.filter((item) => item && typeof item === 'object').map(toToolItem);
+          const status = args && typeof args.status === 'string' ? args.status : 'all';
+          const filtered = all.filter((item) =>
+            status === 'open' ? !item.done : status === 'done' ? item.done : true,
+          );
+          const requested = Number(args && args.limit);
+          const limit = Number.isFinite(requested) ? Math.min(200, Math.max(1, Math.round(requested))) : 100;
+          return {
+            total: all.length,
+            open: all.filter((item) => !item.done).length,
+            done: all.filter((item) => item.done).length,
+            items: filtered.slice(0, limit),
+          };
+        },
+        presentCall: (args) => ({
+          card: 'generic',
+          title: 'Read todo panel',
+          kind: 'read',
+          rawInput: args ?? {},
+        }),
+      }),
+    'todo-panel: todo_list tool',
+  );
 }

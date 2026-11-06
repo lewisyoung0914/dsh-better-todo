@@ -52,6 +52,19 @@ Two things worth knowing:
 - A window minimised for a long time has its timers throttled by Chromium, so a notification can arrive up to about a minute late. The plugin re-checks the phase as soon as the window becomes visible again.
 - Windows Focus Assist / Do Not Disturb suppresses the toast; that is outside the plugin's control.
 
+## Agent access
+
+The Host half registers a read-only tool named `todo_list`, so any conversation can reach the list: "what's on my todo list", "what's still open today" — the agent calls it on its own.
+
+| Parameter | Meaning |
+| --- | --- |
+| `status` | `all` (default) / `open` / `done` |
+| `limit` | How many tasks to return, 1-200, default 100 |
+
+It returns the title, details, due time, completion state and attachment names; attachment contents never enter the transcript, only the name and size. The tool is read-only: the agent can look, but cannot change your list.
+
+The tool is registered when the plugin loads, so after installing it or editing `index.js`, reload the plugin (turn it off and on again in the plugin list) or restart DSH.
+
 ## Storage
 
 Everything lives in one JSON document that the plugin's Host half owns:
