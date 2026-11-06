@@ -8,6 +8,10 @@ window.__ModuleLoader__.load({
 
     /** The Host half's state document; see index.js for the file behind it. */
     const STATE_URL = '/todo-panel/state';
+    /** Host-side Windows toast, used when the page cannot show a notification. */
+    const NOTIFY_URL = '/todo-panel/notify';
+    /** Same endpoint on its own path, for a Host that already owns the prefix. */
+    const NOTIFY_FALLBACK_URL = '/todo-panel-notify';
     /** Keys a previous version kept in localStorage, read once to migrate. */
     const LEGACY_ITEMS = 'dsh.todo-panel.items.v1';
     const LEGACY_OPEN = 'dsh.todo-panel.open.v1';
@@ -84,6 +88,20 @@ window.__ModuleLoader__.load({
         pomoBreakDone: '休息结束，继续专注',
         pomoAllDone: '全部番茄完成 🎉',
         pomoNotification: '番茄钟',
+        pomoFocusEnded: '专注结束',
+        pomoBreakEnded: '休息结束',
+        pomoStartBreak: '开始休息',
+        pomoStartFocus: '开始专注',
+        pomoResume: '继续',
+        pomoLater: '稍后',
+        pomoPausedTag: '已暂停',
+        pomoBreakHint: '休息 {n} 分钟',
+        pomoFocusHint: '专注 {n} 分钟',
+        pomoTest: '测试通知',
+        pomoTestOk: '已发送测试通知',
+        pomoTestFail: '通知没能发出',
+        pomoNoticeHint: '系统通知未开启，阶段结束只会在面板里提示',
+        pomoEnableNotice: '开启通知',
         attachmentMissing: '附件已不可用',
         detailEmpty: '没有更多说明',
         previewImage: '点击放大查看',
@@ -142,6 +160,20 @@ window.__ModuleLoader__.load({
         pomoBreakDone: 'Break finished — back to focus',
         pomoAllDone: 'All pomodoros done 🎉',
         pomoNotification: 'Pomodoro',
+        pomoFocusEnded: 'Focus finished',
+        pomoBreakEnded: 'Break finished',
+        pomoStartBreak: 'Start break',
+        pomoStartFocus: 'Start focus',
+        pomoResume: 'Resume',
+        pomoLater: 'Later',
+        pomoPausedTag: 'Paused',
+        pomoBreakHint: 'Break {n} min',
+        pomoFocusHint: 'Focus {n} min',
+        pomoTest: 'Test notification',
+        pomoTestOk: 'Test notification sent',
+        pomoTestFail: 'Notification failed',
+        pomoNoticeHint: 'System notifications are off — phase ends only show in the panel',
+        pomoEnableNotice: 'Enable notifications',
         attachmentMissing: 'Attachment unavailable',
         detailEmpty: 'No further details',
         previewImage: 'Click to enlarge',
@@ -227,6 +259,20 @@ window.__ModuleLoader__.load({
 .dshtodo-pomo-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:24px;min-width:24px;padding:0 5px;margin-right:2px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer}
 .dshtodo-pomo-btn:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent));color:var(--dsw-alias-label-primary)}
 .dshtodo-pomo-btn.is-running{color:var(--dsw-alias-brand-primary)}
+.dshtodo-pomo-btn.is-waiting{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base)}
+.dshtodo-pomo-btn.is-waiting:hover{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);opacity:.9}
+.dshtodo-pomo-btn.is-paused{opacity:.65}
+.dshtodo-pomo-toggle{margin-right:2px}
+.dshtodo-alert{display:flex;flex-direction:column;gap:7px;margin:8px 10px 0;padding:9px 10px;border:1px solid var(--dsw-alias-brand-primary);border-radius:9px;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
+.dshtodo-alert-text{display:flex;flex-direction:column;gap:2px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dshtodo-alert-text>strong{font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dshtodo-alert-actions{display:flex;gap:8px}
+.dshtodo-alert-actions>.dshtodo-primary,.dshtodo-alert-actions>.dshtodo-secondary{height:26px;font-size:11.5px}
+.dshtodo-pomo-hint{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dshtodo-pomo-page.is-waiting .dshtodo-pomo-clock{color:var(--dsw-alias-brand-primary)}
+.dshtodo-pomo-notice{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+.dshtodo-pomo-notice-text{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dshtodo-linkbtn{padding:0;border:none;background:transparent;color:var(--dsw-alias-brand-primary);font-family:inherit;font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .dshtodo-pomo-page{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 14px 12px}
 .dshtodo-pomo-clock{font-size:34px;font-weight:600;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:.01em;color:var(--dsw-alias-label-primary)}
 .dshtodo-pomo-page.is-running .dshtodo-pomo-clock{color:var(--dsw-alias-brand-primary)}
@@ -355,6 +401,19 @@ window.__ModuleLoader__.load({
         h('circle', { key: 'c', cx: 8, cy: 8.6, r: 5.1 }),
         h('path', { key: 'h', d: 'M8 5.9v2.9l1.9 1.3' }),
         h('path', { key: 't', d: 'M6.2 2.4h3.6' }),
+      ]);
+    }
+
+    function PauseIcon() {
+      return svg({ size: 13, width: 1.8 }, [
+        h('path', { key: 'a', d: 'M6.2 3.6v8.8' }),
+        h('path', { key: 'b', d: 'M9.8 3.6v8.8' }),
+      ]);
+    }
+
+    function PlayIcon() {
+      return svg({ size: 12, width: 1.6 }, [
+        h('path', { key: 'p', d: 'M5.4 3.6l6 4.4-6 4.4z' }),
       ]);
     }
 
@@ -612,14 +671,25 @@ window.__ModuleLoader__.load({
 
     /** False until the first load finished: placeholder state must not be saved. */
     let documentLoaded = false;
+    /** Revision of the document this page last read or wrote. */
+    let documentRev = 0;
     let saveTimer = null;
     let saveChain = Promise.resolve();
+    /** True while a Host document is being merged in, so the merge does not save. */
+    let applyingRemote = false;
+    /** Saves in flight; a merge while one runs would resurrect a replaced item. */
+    let saving = 0;
+    /** Items created here that no save has carried to the Host yet. */
+    const pendingCreateIds = new Set();
 
     function buildDocument() {
       const attachments = {};
       for (const [id, dataUrl] of attachmentFiles) attachments[id] = dataUrl;
       return {
         version: 1,
+        // The revision this snapshot was built from; a Host that speaks the
+        // protocol replaces it with `baseRev + 1` and ignores this field.
+        rev: documentRev,
         savedAt: Date.now(),
         open: openStore.get(),
         items: itemsStore.get(),
@@ -629,29 +699,104 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /**
+     * Merges a document another writer produced (an agent tool, or a panel in
+     * another window). The page's own items win by id, anything only the other
+     * writer knows is kept, and no save is scheduled here.
+     */
+    function mergeRemoteDocument(remote) {
+      if (!remote || typeof remote !== 'object') return false;
+      const rev = Number(remote.rev);
+      if (Number.isFinite(rev)) documentRev = rev;
+      const remoteItems = parseItemsArray(remote.items);
+      applyingRemote = true;
+      try {
+        // The Host copy is the truth: it already carries every save this page
+        // made. Only items created after the last successful save survive from
+        // the local side, so a removed item cannot come back.
+        const merged = new Map(remoteItems.map((item) => [item.id, item]));
+        for (const item of itemsStore.get()) {
+          if (!merged.has(item.id) && pendingCreateIds.has(item.id)) merged.set(item.id, item);
+        }
+        itemsStore.set(Array.from(merged.values()));
+        const keptFiles = new Map(attachmentFiles);
+        attachmentFiles.clear();
+        const attachments = remote.attachments;
+        if (attachments && typeof attachments === 'object') {
+          for (const [id, value] of Object.entries(attachments)) {
+            if (typeof value === 'string' && value !== '') attachmentFiles.set(id, value);
+          }
+        }
+        for (const id of pendingCreateIds) {
+          const value = keptFiles.get(id);
+          if (value) attachmentFiles.set(id, value);
+        }
+      } finally {
+        applyingRemote = false;
+      }
+      return true;
+    }
+
     /** Debounced whole-document save; writes are serialised by an inner chain. */
     function scheduleSave() {
-      if (!documentLoaded) return;
+      if (!documentLoaded || applyingRemote) return;
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       saveTimer = window.setTimeout(() => {
         saveTimer = null;
-        const body = JSON.stringify(buildDocument());
-        saveChain = saveChain
-          .then(() =>
-            fetch(STATE_URL, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body,
-            }),
-          )
-          .then((response) => {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          })
-          .catch((error) => {
-            console.error('[todo-panel] state could not be saved', error);
-          });
+        saveChain = saveChain.then(() => postDocument()).catch((error) => {
+          console.error('[todo-panel] state could not be saved', error);
+        });
       }, 400);
     }
+
+    /** Posts the current snapshot; a stale revision adopts the Host copy first. */
+    async function postDocument(retry = true) {
+      const body = JSON.stringify({ ...buildDocument(), baseRev: documentRev });
+      saving += 1;
+      let response;
+      try {
+        response = await fetch(STATE_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+        });
+      } finally {
+        saving -= 1;
+      }
+      if (response.status === 409) {
+        const conflict = await response.json().catch(() => null);
+        mergeRemoteDocument(conflict && conflict.document);
+        // The user's own edits still have to land, so save once more on top of
+        // the merged list; a second conflict is logged instead of looping.
+        if (retry) await postDocument(false);
+        return;
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const result = await response.json().catch(() => null);
+      if (result && Number.isFinite(Number(result.rev))) documentRev = Number(result.rev);
+      pendingCreateIds.clear();
+    }
+
+    /** Picks up changes an agent tool made while the panel sat idle. */
+    async function pollRemoteDocument() {
+      if (!documentLoaded || applyingRemote) return;
+      if (saveTimer !== null || saving > 0) return;
+      try {
+        const response = await fetch(STATE_URL, {
+          headers: { accept: 'application/json' },
+          cache: 'no-store',
+        });
+        if (!response.ok) return;
+        const remote = await response.json();
+        const rev = Number(remote && remote.rev);
+        if (!Number.isFinite(rev) || rev <= documentRev) return;
+        mergeRemoteDocument(remote);
+      } catch (error) {
+        /* the Host may be restarting; the next poll tries again */
+      }
+    }
+
+    window.setInterval(pollRemoteDocument, 4000);
 
     /** Applies a document to the stores; persist calls are inert while loading. */
     function applyDocument(document) {
@@ -698,6 +843,7 @@ window.__ModuleLoader__.load({
 
       if (Array.isArray(document.items) && document.items.length > 0) {
         applyDocument(document);
+        documentRev = Number(document.rev) || 0;
         documentLoaded = true;
         return;
       }
@@ -722,6 +868,7 @@ window.__ModuleLoader__.load({
       }
 
       applyDocument(document);
+      documentRev = Number(document.rev) || 0;
       documentLoaded = true;
     }
 
@@ -736,6 +883,13 @@ window.__ModuleLoader__.load({
       pausedLeft: null,
       completed: 0,
     };
+
+    /**
+     * `focus` and `break` count down; `focus-end` and `break-end` hold the
+     * finished phase until the user starts the next one by hand, so a timer can
+     * never steal attention that the user did not hand back.
+     */
+    const POMO_PHASES = ['idle', 'focus', 'break', 'focus-end', 'break-end'];
 
     /** Validates one stored timer snapshot, clamping every number. */
     function parsePomodoro(parsed) {
@@ -752,9 +906,11 @@ window.__ModuleLoader__.load({
       );
       state.rounds = num(parsed.rounds, state.rounds, 1, 24);
       state.completed = num(parsed.completed, 0, 0, 99);
-      state.phase = parsed.phase === 'focus' || parsed.phase === 'break' ? parsed.phase : 'idle';
+      state.phase = POMO_PHASES.indexOf(parsed.phase) >= 0 ? parsed.phase : 'idle';
       state.endsAt =
-        state.phase === 'idle' ? null : Number.isFinite(parsed.endsAt) ? parsed.endsAt : null;
+        (state.phase === 'focus' || state.phase === 'break') && Number.isFinite(parsed.endsAt)
+          ? parsed.endsAt
+          : null;
       state.pausedLeft =
         state.phase === 'idle' || !Number.isFinite(parsed.pausedLeft) ? null : parsed.pausedLeft;
       return state;
@@ -779,10 +935,24 @@ window.__ModuleLoader__.load({
 
     function pomoRemainingMs(state, now) {
       if (state.endsAt) return Math.max(0, state.endsAt - now);
+      if (pomoWaiting(state)) return 0;
       if (Number.isFinite(state.pausedLeft) && state.pausedLeft !== null) {
         return Math.max(0, state.pausedLeft);
       }
       return pomoLengthMs(state, state.phase === 'break' ? 'break' : 'focus');
+    }
+
+    /** A finished phase holding until the user starts the next one. */
+    function pomoWaiting(state) {
+      return state.phase === 'focus-end' || state.phase === 'break-end';
+    }
+
+    function pomoRunning(state) {
+      return Boolean(state.endsAt);
+    }
+
+    function pomoPaused(state) {
+      return !state.endsAt && !pomoWaiting(state) && Number.isFinite(state.pausedLeft);
     }
 
     function formatClock(ms) {
@@ -804,43 +974,80 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Windows toast through the renderer's Web Notifications support. */
-    function notifyPomodoro(body) {
+    /** `granted` / `denied` / `default`, or `unsupported` where the API is absent. */
+    function pomodoroPermission() {
       try {
-        if (typeof window === 'undefined' || typeof window.Notification !== 'function') return;
-        const fire = () => {
-          try {
-            new window.Notification(translate('pomoNotification'), {
-              body,
-              tag: 'todo-panel-pomodoro',
-            });
-          } catch (error) {
-            console.error('[todo-panel] notification could not be shown', error);
-          }
-        };
-        if (window.Notification.permission === 'granted') fire();
-        else if (window.Notification.permission !== 'denied') {
-          window.Notification.requestPermission().then((permission) => {
-            if (permission === 'granted') fire();
-          }, () => {});
-        }
+        if (typeof window.Notification !== 'function') return 'unsupported';
+        return window.Notification.permission;
       } catch (error) {
-        console.error('[todo-panel] notification unavailable', error);
+        return 'unsupported';
       }
+    }
+
+    /** Windows toast through the Host, for when the renderer cannot show one. */
+    function notifyThroughHost(body) {
+      try {
+        const payload = JSON.stringify({ title: translate('pomoNotification'), body });
+        const post = (url) =>
+          fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: payload,
+          });
+        void post(notifyRoute)
+          .then((response) => {
+            // A Host that already owns the main prefix answers 404; its toast
+            // endpoint lives on the fallback path until it restarts.
+            if (response.status !== 404 || notifyRoute !== NOTIFY_URL) return undefined;
+            notifyRoute = NOTIFY_FALLBACK_URL;
+            return post(notifyRoute);
+          })
+          .catch(() => {});
+      } catch (error) {
+        /* the Host may not be able to reach a notifier either */
+      }
+    }
+
+    /** Which of the two notify paths this page settled on. */
+    let notifyRoute = NOTIFY_URL;
+
+    /** Returns true when the renderer accepted a notification to display. */
+    function showRendererNotification(body) {
+      try {
+        if (typeof window.Notification !== 'function') return false;
+        if (window.Notification.permission !== 'granted') return false;
+        new window.Notification(translate('pomoNotification'), {
+          body,
+          requireInteraction: true,
+          tag: 'todo-panel-pomodoro-' + Date.now(),
+        });
+        return true;
+      } catch (error) {
+        console.error('[todo-panel] notification could not be shown', error);
+        return false;
+      }
+    }
+
+    function notifyPomodoro(body) {
+      if (showRendererNotification(body)) return;
+      notifyThroughHost(body);
     }
 
     function pomoStart() {
       const state = pomodoroStore.get();
       if (state.endsAt) return;
       ensurePomodoroPermission();
-      const fresh = state.phase === 'idle';
-      const phase = fresh ? 'focus' : state.phase;
-      const left = fresh ? pomoLengthMs(state, 'focus') : pomoRemainingMs(state, Date.now());
+      const now = Date.now();
+      if (state.phase === 'focus' || state.phase === 'break') {
+        // Resume the paused countdown exactly where it stopped.
+        pomodoroStore.set({ ...state, endsAt: now + pomoRemainingMs(state, now), pausedLeft: null });
+        return;
+      }
+      const next = state.phase === 'focus-end' ? 'break' : 'focus';
       pomodoroStore.set({
         ...state,
-        phase,
-        completed: fresh ? 0 : state.completed,
-        endsAt: Date.now() + left,
+        phase: next,
+        endsAt: now + pomoLengthMs(state, next),
         pausedLeft: null,
       });
     }
@@ -867,9 +1074,12 @@ window.__ModuleLoader__.load({
       pomodoroStore.set({ ...state, ...patch });
     }
 
-    function pomoAdvance() {
+    /**
+     * A countdown that reaches zero stops there and notifies; the next phase
+     * starts only from {@link pomoStart}, which is the click the user expects.
+     */
+    function pomoFinish() {
       const state = pomodoroStore.get();
-      const now = Date.now();
       if (state.phase === 'focus') {
         const completed = state.completed + 1;
         if (completed >= state.rounds) {
@@ -885,38 +1095,28 @@ window.__ModuleLoader__.load({
         }
         pomodoroStore.set({
           ...state,
-          phase: 'break',
+          phase: 'focus-end',
           completed,
-          endsAt: now + pomoLengthMs(state, 'break'),
+          endsAt: null,
           pausedLeft: null,
         });
-        notifyPomodoro(
-          translate('pomoFocusDone') +
-            ' · ' +
-            translate('pomoBreak') +
-            ' ' +
-            state.breakMinutes +
-            ' ' +
-            translate('pomoMinute'),
-        );
+        notifyPomodoro(translate('pomoFocusDone'));
+        revealPanel();
         return;
       }
       if (state.phase === 'break') {
-        pomodoroStore.set({
-          ...state,
-          phase: 'focus',
-          endsAt: now + pomoLengthMs(state, 'focus'),
-          pausedLeft: null,
-        });
-        notifyPomodoro(
-          translate('pomoBreakDone') +
-            ' · ' +
-            translate('pomoFocus') +
-            ' ' +
-            state.focus +
-            ' ' +
-            translate('pomoMinute'),
-        );
+        pomodoroStore.set({ ...state, phase: 'break-end', endsAt: null, pausedLeft: null });
+        notifyPomodoro(translate('pomoBreakDone'));
+        revealPanel();
+      }
+    }
+
+    /** A finished timer is worthless behind a closed panel, so bring it back. */
+    function revealPanel() {
+      try {
+        if (!openStore.get()) openStore.set(true);
+      } catch (error) {
+        /* the panel is optional */
       }
     }
 
@@ -925,7 +1125,7 @@ window.__ModuleLoader__.load({
       const state = pomodoroStore.get();
       if (!state.endsAt || state.phase === 'idle') return;
       if (Date.now() < state.endsAt) return;
-      pomoAdvance();
+      pomoFinish();
     }
 
     // --- locale plumbing ---------------------------------------------------
@@ -1196,18 +1396,58 @@ window.__ModuleLoader__.load({
       const t = translate;
       const remaining = usePomodoroRemaining(state);
       const running = Boolean(state.endsAt);
+      const waiting = pomoWaiting(state);
+      const paused = pomoPaused(state);
       const idle = state.phase === 'idle';
+      const breakNext = state.phase === 'focus-end';
+      const [notice, setNotice] = React.useState('');
       const phaseLabel = idle
         ? t('pomoReady')
-        : state.phase === 'break'
+        : state.phase === 'break' || state.phase === 'break-end'
           ? t('pomoBreak')
           : t('pomoFocus') + ' ' + Math.min(state.completed + 1, state.rounds) + '/' + state.rounds;
+      const headline = waiting
+        ? breakNext
+          ? t('pomoFocusEnded')
+          : t('pomoBreakEnded')
+        : paused
+          ? t('pomoPausedTag')
+          : phaseLabel;
+      const primaryLabel = running
+        ? t('pomoPause')
+        : waiting
+          ? breakNext
+            ? t('pomoStartBreak')
+            : t('pomoStartFocus')
+          : paused
+            ? t('pomoResume')
+            : t('pomoStart');
+      const permission = pomodoroPermission();
+
+      const testNotification = () => {
+        const body = t('pomoTestOk');
+        if (showRendererNotification(body)) {
+          setNotice(t('pomoTestOk'));
+          return;
+        }
+        notifyThroughHost(body);
+        setNotice(t('pomoTestFail'));
+      };
 
       return h(
         'div',
-        { className: 'dshtodo-pomo-page' + (running ? ' is-running' : '') },
+        { className: 'dshtodo-pomo-page' + (running ? ' is-running' : '') + (waiting ? ' is-waiting' : '') },
         h('div', { className: 'dshtodo-pomo-clock' }, formatClock(remaining)),
-        h('div', { className: 'dshtodo-pomo-phase' }, phaseLabel),
+        h('div', { className: 'dshtodo-pomo-phase' }, headline),
+        waiting
+          ? h(
+              'div',
+              { className: 'dshtodo-pomo-hint' },
+              breakNext
+                ? t('pomoBreakHint').replace('{n}', String(state.breakMinutes))
+                : t('pomoFocusHint').replace('{n}', String(state.focus)),
+            )
+          : null,
         h(
           'div',
           { className: 'dshtodo-pomo-settings' },
@@ -1270,7 +1510,7 @@ window.__ModuleLoader__.load({
               className: 'dshtodo-primary',
               onClick: () => (running ? pomoPause() : pomoStart()),
             },
-            running ? t('pomoPause') : t('pomoStart'),
+            primaryLabel,
           ),
           h(
             'button',
@@ -1282,6 +1522,33 @@ window.__ModuleLoader__.load({
             },
             t('pomoReset'),
           ),
+        ),
+        h(
+          'div',
+          { className: 'dshtodo-pomo-notice' },
+          permission === 'granted'
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dshtodo-linkbtn',
+                  onClick: testNotification,
+                },
+                t('pomoTest'),
+              )
+            : h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dshtodo-linkbtn',
+                  onClick: () => {
+                    ensurePomodoroPermission();
+                    testNotification();
+                  },
+                },
+                t('pomoEnableNotice'),
+              ),
+          h('span', { className: 'dshtodo-pomo-notice-text' }, notice || (permission === 'granted' ? '' : t('pomoNoticeHint'))),
         ),
       );
     }
@@ -1509,6 +1776,17 @@ window.__ModuleLoader__.load({
       const t = translate;
       const pomoLeft = usePomodoroRemaining(pomodoro);
       const pomoActive = pomodoro.phase !== 'idle';
+      const pomoIsRunning = pomoRunning(pomodoro);
+      const pomoIsPaused = pomoPaused(pomodoro);
+      const pomoIsWaiting = pomoWaiting(pomodoro);
+      const pomoNext = pomodoro.phase === 'focus-end' ? 'break' : 'focus';
+      // Dismissing the finished-phase banner hides it until the phase changes.
+      const [bannerHidden, setBannerHidden] = React.useState(false);
+      const bannerPhase = pomodoro.phase + ':' + pomodoro.completed;
+
+      React.useEffect(() => {
+        setBannerHidden(false);
+      }, [bannerPhase]);
 
       const [formId, setFormId] = React.useState(null);
       const [editingId, setEditingId] = React.useState(null);
@@ -1711,6 +1989,7 @@ window.__ModuleLoader__.load({
             current.map((item) => (item.id === editingId ? { ...item, ...patch } : item)),
           );
         } else {
+          pendingCreateIds.add(formId);
           setItems((current) =>
             current.concat([
               {
@@ -1960,13 +2239,40 @@ window.__ModuleLoader__.load({
                     'button',
                     {
                       type: 'button',
-                      className: 'dshtodo-pomo-btn' + (pomoActive ? ' is-running' : ''),
-                      title: t('pomo'),
+                      className:
+                        'dshtodo-pomo-btn' +
+                        (pomoIsRunning ? ' is-running' : '') +
+                        (pomoIsWaiting ? ' is-waiting' : '') +
+                        (pomoIsPaused ? ' is-paused' : ''),
+                      title: pomoIsWaiting
+                        ? pomoNext === 'break'
+                          ? t('pomoStartBreak')
+                          : t('pomoStartFocus')
+                        : t('pomo'),
                       'aria-label': t('pomo'),
                       onClick: () => setPomoOpen(true),
                     },
-                    pomoActive ? formatClock(pomoLeft) : h(TimerIcon, null),
+                    pomoIsWaiting
+                      ? pomoNext === 'break'
+                        ? t('pomoBreak')
+                        : t('pomoFocus')
+                      : pomoActive
+                        ? formatClock(pomoLeft)
+                        : h(TimerIcon, null),
                   ),
+              pomoIsRunning || pomoIsPaused
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dshtodo-icon-btn dshtodo-pomo-toggle',
+                      title: pomoIsRunning ? t('pomoPause') : t('pomoResume'),
+                      'aria-label': pomoIsRunning ? t('pomoPause') : t('pomoResume'),
+                      onClick: () => (pomoIsRunning ? pomoPause() : pomoStart()),
+                    },
+                    pomoIsRunning ? h(PauseIcon, null) : h(PlayIcon, null),
+                  )
+                : null,
               formOpen || pomoOpen
                 ? null
                 : h(
@@ -2008,6 +2314,53 @@ window.__ModuleLoader__.load({
             : h(
                 React.Fragment,
                 null,
+                pomoIsWaiting && !bannerHidden
+                  ? h(
+                      'div',
+                      { className: 'dshtodo-alert', role: 'status' },
+                      h(
+                        'div',
+                        { className: 'dshtodo-alert-text' },
+                        h(
+                          'strong',
+                          null,
+                          pomoNext === 'break' ? t('pomoFocusEnded') : t('pomoBreakEnded'),
+                        ),
+                        h(
+                          'span',
+                          null,
+                          pomoNext === 'break'
+                            ? t('pomoBreakHint').replace('{n}', String(pomodoro.breakMinutes))
+                            : t('pomoFocusHint').replace('{n}', String(pomodoro.focus)),
+                        ),
+                      ),
+                      h(
+                        'div',
+                        { className: 'dshtodo-alert-actions' },
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'dshtodo-primary',
+                            onClick: () => {
+                              pomoStart();
+                              setPomoOpen(true);
+                            },
+                          },
+                          pomoNext === 'break' ? t('pomoStartBreak') : t('pomoStartFocus'),
+                        ),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'dshtodo-secondary',
+                            onClick: () => setBannerHidden(true),
+                          },
+                          t('pomoLater'),
+                        ),
+                      ),
+                    )
+                  : null,
                 h(
                   'div',
                   { className: 'dshtodo-tabs', role: 'tablist' },
@@ -2041,7 +2394,7 @@ window.__ModuleLoader__.load({
                   ? h('p', { className: 'dshtodo-empty' }, t('emptyAll'))
                   : h('div', { className: 'dshtodo-body' }, listBody),
               ),
-          h('a', { ref: downloadRef, style: { display: 'none' }, 'aria-hidden': true }),
+h('a', { ref: downloadRef, style: { display: 'none' }, 'aria-hidden': true }),
         ),
         preview
           ? h(

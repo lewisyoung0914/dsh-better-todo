@@ -1,5 +1,6 @@
+import { spawn } from 'node:child_process';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
 /**
@@ -15,6 +16,7 @@ import { homedir } from 'node:os';
 
 const ROUTE_PREFIX = '/todo-panel';
 const STATE_ROUTE = `${ROUTE_PREFIX}/state`;
+const NOTIFY_ROUTE = `${ROUTE_PREFIX}/notify`;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 /** `<DSH_HOME>/todo-panel/state.json`; falls back to `~/.dsh` outside a profile. */
@@ -25,6 +27,89 @@ function documentPath() {
       : join(homedir(), '.dsh');
   return join(home, 'todo-panel', 'state.json');
 }
+
+/** The document a first run starts from, with every field the panel reads. */
+function emptyDocument() {
+  return {
+    version: 1,
+    rev: 0,
+    savedAt: null,
+    open: true,
+    items: [],
+    position: null,
+    pomodoro: null,
+    attachments: {},
+  };
+}
+
+/** Older files predate `rev`; a missing or broken revision counts as revision 0. */
+function documentRev(document) {
+  const rev = Number(document && document.rev);
+  return Number.isFinite(rev) ? Math.max(0, Math.trunc(rev)) : 0;
+}
+
+/** The stored value as a mutable document that has the collections tools use. */
+function asDocument(value) {
+  const document =
+    value && typeof value === 'object' && !Array.isArray(value) ? value : emptyDocument();
+  if (!Array.isArray(document.items)) document.items = [];
+  if (
+    !document.attachments ||
+    typeof document.attachments !== 'object' ||
+    Array.isArray(document.attachments)
+  ) {
+    document.attachments = {};
+  }
+  return document;
+}
+
+/** Attachments are inlined as data URLs, so only the common types get a name. */
+const MIME_TYPES = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif',
+  pdf: 'application/pdf',
+  txt: 'text/plain',
+  md: 'text/markdown',
+  json: 'application/json',
+  zip: 'application/zip',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  mp4: 'video/mp4',
+  mp3: 'audio/mpeg',
+};
+
+function mimeFor(name) {
+  const extension = extname(String(name ?? '')).slice(1).toLowerCase();
+  return MIME_TYPES[extension] ?? 'application/octet-stream';
+}
+
+/**
+ * Runs inside the toast's own PowerShell process. The title and body travel in
+ * the environment, never in this text: a task called `"; Remove-Item ...` must
+ * not be able to change the script. The notifier id is the AUMID Windows
+ * registers for `powershell.exe`, so the toast has a real sender to show under.
+ */
+const TOAST_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+$title = [string]$env:TODO_TOAST_TITLE
+$body = [string]$env:TODO_TOAST_BODY
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$texts = $xml.GetElementsByTagName('text')
+$texts.Item(0).AppendChild($xml.CreateTextNode($title)) | Out-Null
+$texts.Item(1).AppendChild($xml.CreateTextNode($body)) | Out-Null
+$xml.GetElementsByTagName('toast').Item(0).SetAttribute('duration', 'long')
+$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe')
+$notifier.Show([Windows.UI.Notifications.ToastNotification]::new($xml))
+`.trim();
 
 function sendJson(response, status, value) {
   const body = JSON.stringify(value);
@@ -79,85 +164,195 @@ export function apply(ctx) {
     }
   };
 
-  const writeDocument = (document) => {
-    // Serialise writes so two saves never interleave on the temporary file.
-    writes = writes
-      .then(async () => {
-        await mkdir(dirname(file), { recursive: true });
-        const temporary = `${file}.tmp`;
-        await writeFile(temporary, JSON.stringify(document), 'utf8');
-        await rename(temporary, file);
-        return true;
-      })
-      .catch((error) => {
-        console.error('[todo-panel] state could not be written:', String(error && error.message ? error.message : error));
-        return false;
-      });
-    return writes;
+  const writeNow = async (document) => {
+    try {
+      await mkdir(dirname(file), { recursive: true });
+      const temporary = `${file}.tmp`;
+      await writeFile(temporary, JSON.stringify(document), 'utf8');
+      await rename(temporary, file);
+    } catch (error) {
+      console.error(
+        '[todo-panel] state could not be written:',
+        String(error && error.message ? error.message : error),
+      );
+      throw error;
+    }
   };
 
-  // Kept as a function so the tool below still works on a host without a web server.
-  const registerStateRoute = (webServer) =>
-    webServer.register({
-    kind: 'prefix',
-    path: ROUTE_PREFIX,
-    handler: async (request, response) => {
-      const method = request.method ?? 'GET';
-      const path = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
-        .pathname;
-      if (path !== STATE_ROUTE) {
-        sendJson(response, 404, { error: `no such route: ${path}` });
-        return;
+  /**
+   * Runs `change` inside the serialised write chain: it reads the document the
+   * previous write left on disk, and the revision bump happens in that same
+   * slot, so two changes can never both start from the same revision.
+   *
+   * `change` returns `{ value }` to save the document it was given, `{ replace }`
+   * to save another document, or `{ skip: true }` to leave the file alone.
+   */
+  const transact = (change) => {
+    const outcome = writes.then(async () => {
+      const document = asDocument(await readDocument());
+      const revision = documentRev(document);
+      const edited = (await change(document, revision)) ?? {};
+      if (edited.skip === true) {
+        return { written: false, rev: revision, value: edited.value, document };
       }
-      if (method === 'GET' || method === 'HEAD') {
-        const document = await readDocument();
-        sendJson(
-          response,
-          200,
-          document ?? {
-            version: 1,
-            savedAt: null,
-            open: true,
-            items: [],
-            position: null,
-            pomodoro: null,
-            attachments: {},
-          },
-        );
-        return;
-      }
-      if (method === 'POST') {
-        if (!sameOrigin(request)) {
-          sendJson(response, 403, { error: 'cross-origin request refused' });
-          return;
-        }
-        let document;
-        try {
-          document = JSON.parse(await readBody(request));
-        } catch (error) {
-          sendJson(response, 400, {
-            error: String(error && error.message ? error.message : error),
-          });
-          return;
-        }
-        if (!document || typeof document !== 'object' || Array.isArray(document)) {
-          sendJson(response, 400, { error: 'expected a state document' });
-          return;
-        }
-        const stored = await writeDocument(document);
-        sendJson(response, stored ? 200 : 500, { ok: stored });
-        return;
-      }
+      const next = asDocument(edited.replace ?? document);
+      next.rev = revision + 1;
+      next.savedAt = Date.now();
+      await writeNow(next);
+      return { written: true, rev: next.rev, value: edited.value };
+    });
+    // A rejected change or a failed write must not wedge the chain for every
+    // later save; the caller still sees the rejection through `outcome`.
+    writes = outcome.then(
+      () => true,
+      () => true,
+    );
+    return outcome;
+  };
+
+  /**
+   * Starts a toast in its own process. Only the spawn is awaited: the panel's
+   * request must not wait for a shell, and a missing PowerShell is a failure we
+   * report rather than an exception that escapes the route.
+   *
+   * The child is deliberately not `detached`: Windows would then start it
+   * without a console, and both powershell.exe and pwsh.exe exit 0 before
+   * running `-Command` in that state. `windowsHide` plus ignored stdio gives
+   * the same result the toast needs - a hidden, non-blocking helper - and the
+   * helper still runs the script.
+   */
+  const showToast = (title, body) => {
+    const args = ['-NoProfile', '-NonInteractive', '-Command', TOAST_SCRIPT];
+    const options = {
+      stdio: 'ignore',
+      windowsHide: true,
+      env: { ...process.env, TODO_TOAST_TITLE: title, TODO_TOAST_BODY: body },
+    };
+    const launch = (command) =>
+      new Promise((started, failed) => {
+        const child = spawn(command, args, options);
+        child.once('spawn', () => {
+          // The promise is settled, so this listener only keeps a late error
+          // from surfacing as an unhandled event once the toast is running.
+          child.once('error', () => {});
+          child.unref();
+          started(true);
+        });
+        child.once('error', failed);
+      });
+    return launch('powershell.exe').catch(() => launch('pwsh.exe'));
+  };
+
+  /** Toast endpoint; also reachable alone when the main prefix is already taken. */
+  const handleNotify = async (request, response) => {
+    const method = request.method ?? 'GET';
+    if (method !== 'POST') {
       sendJson(response, 405, { error: 'method not allowed' });
-    },
-  });
+      return;
+    }
+    if (!sameOrigin(request)) {
+      sendJson(response, 403, { error: 'cross-origin request refused' });
+      return;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(await readBody(request));
+    } catch (error) {
+      sendJson(response, 400, { error: String(error && error.message ? error.message : error) });
+      return;
+    }
+    const title = String((payload && payload.title) ?? '').trim() || 'Todo 提醒';
+    const body = String((payload && payload.body) ?? '').trim();
+    try {
+      await showToast(title, body);
+      sendJson(response, 200, { ok: true });
+    } catch (error) {
+      sendJson(response, 200, {
+        ok: false,
+        error: String(error && error.message ? error.message : error),
+      });
+    }
+  };
+
+  // Kept as a function so the tools below still work on a host without a web server.
+  const registerRoutes = (webServer) =>
+    webServer.register({
+      kind: 'prefix',
+      path: ROUTE_PREFIX,
+      handler: async (request, response) => {
+        const method = request.method ?? 'GET';
+        const path = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
+          .pathname;
+        if (path === NOTIFY_ROUTE) {
+          await handleNotify(request, response);
+          return;
+        }
+        if (path !== STATE_ROUTE) {
+          sendJson(response, 404, { error: `no such route: ${path}` });
+          return;
+        }
+        if (method === 'GET' || method === 'HEAD') {
+          const document = await readDocument();
+          sendJson(response, 200, document ?? emptyDocument());
+          return;
+        }
+        if (method === 'POST') {
+          if (!sameOrigin(request)) {
+            sendJson(response, 403, { error: 'cross-origin request refused' });
+            return;
+          }
+          let payload;
+          try {
+            payload = JSON.parse(await readBody(request));
+          } catch (error) {
+            sendJson(response, 400, {
+              error: String(error && error.message ? error.message : error),
+            });
+            return;
+          }
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            sendJson(response, 400, { error: 'expected a state document' });
+            return;
+          }
+          const requested = Number(payload.baseRev ?? 0);
+          const baseRev = Number.isFinite(requested) ? requested : Number.NaN;
+          // `baseRev` is protocol, not state; the stored document must not gain it.
+          delete payload.baseRev;
+          let outcome;
+          try {
+            outcome = await transact((stored, revision) => {
+              if (baseRev !== revision) {
+                return { skip: true, value: { conflict: true, stored } };
+              }
+              return { replace: payload, value: { conflict: false } };
+            });
+          } catch (error) {
+            sendJson(response, 500, {
+              error: String(error && error.message ? error.message : error),
+            });
+            return;
+          }
+          if (outcome.value && outcome.value.conflict === true) {
+            sendJson(response, 409, {
+              error: 'stale',
+              rev: outcome.rev,
+              document: outcome.document ?? emptyDocument(),
+            });
+            return;
+          }
+          sendJson(response, 200, { ok: true, rev: outcome.rev });
+          return;
+        }
+        sendJson(response, 405, { error: 'method not allowed' });
+      },
+    });
 
   const webServer = ctx.get('webServer');
   if (webServer === undefined) {
     console.warn('[todo-panel] web server service missing; the panel cannot load or save its state');
   } else {
     try {
-      ctx.effect(() => registerStateRoute(webServer), 'todo-panel: state route');
+      ctx.effect(() => registerRoutes(webServer), 'todo-panel: http routes');
     } catch (error) {
       // An earlier load of this plugin already owns the route and still answers
       // it; failing here would take the panel and the tool down with it.
@@ -165,6 +360,24 @@ export function apply(ctx) {
         '[todo-panel] the state route is already registered; keeping the existing one:',
         String(error && error.message ? error.message : error),
       );
+      // That older handler knows nothing about the toast endpoint, so serve it
+      // on a path of its own until the process restarts.
+      try {
+        ctx.effect(
+          () =>
+            webServer.register({
+              kind: 'exact',
+              path: `${ROUTE_PREFIX}-notify`,
+              handler: handleNotify,
+            }),
+          'todo-panel: notify route',
+        );
+      } catch (fallbackError) {
+        console.warn(
+          '[todo-panel] the notify route is already registered too:',
+          String(fallbackError && fallbackError.message ? fallbackError.message : fallbackError),
+        );
+      }
     }
   }
 
@@ -306,5 +519,288 @@ export function apply(ctx) {
         }),
       }),
     'todo-panel: todo_list tool',
+  );
+
+  /** The flattened item the mutation tools return; the same shape `todo_list` shows. */
+  const itemSchema = () => ({
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'title', 'done'],
+    properties: {
+      id: { type: 'string' },
+      title: { type: 'string' },
+      detail: { type: 'string' },
+      due: { type: 'string' },
+      done: { type: 'boolean' },
+      completedAt: { type: 'string' },
+      attachment: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'size'],
+        properties: {
+          name: { type: 'string' },
+          size: { type: 'integer' },
+        },
+      },
+    },
+  });
+
+  /** The item a tool argument names, or the error the model needs to retry with. */
+  const findItem = (document, id) => {
+    const item = document.items.find(
+      (entry) => entry && typeof entry === 'object' && String(entry.id ?? '') === id,
+    );
+    if (item === undefined) throw new Error(`no todo with id ${id}`);
+    return item;
+  };
+
+  const formatSize = (bytes) => {
+    const size = Number(bytes) || 0;
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  ctx.effect(
+    () =>
+      tools.register({
+        name: 'todo_add',
+        description:
+          "Add a task to the user's Todo panel. Use it when the user asks you to remember something, add a todo, or note a follow-up. It changes the panel immediately and returns the new item.",
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title'],
+          properties: {
+            title: { type: 'string', description: 'What to do, one line. Must not be empty.' },
+            detail: { type: 'string', description: 'Optional longer note for the task.' },
+            due: {
+              type: 'string',
+              description: "Optional due time as 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:mm'.",
+            },
+          },
+        },
+        output: {
+          schema: itemSchema(),
+          render: (args, value) => {
+            const lines = [`已在 Todo 面板添加待办：${value.title}（id ${value.id}）。`];
+            if (value.due) lines.push(`截止时间：${String(value.due).replace('T', ' ')}`);
+            if (value.detail) lines.push(`详情：${value.detail}`);
+            return [{ type: 'text', text: lines.join('\n') }];
+          },
+        },
+        async execute(args) {
+          const title = typeof args.title === 'string' ? args.title.trim() : '';
+          if (title === '') throw new Error('todo_add needs a non-empty title');
+          const outcome = await transact((document) => {
+            const item = {
+              id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+              title,
+              detail: typeof args.detail === 'string' ? args.detail : '',
+              due: typeof args.due === 'string' ? args.due : '',
+              createdAt: Date.now(),
+              done: false,
+              completedAt: null,
+            };
+            document.items.push(item);
+            return { value: toToolItem(item) };
+          });
+          return outcome.value;
+        },
+        presentCall: (args) => ({
+          card: 'generic',
+          title: 'Add todo',
+          kind: 'edit',
+          rawInput: args ?? {},
+        }),
+      }),
+    'todo-panel: todo_add tool',
+  );
+
+  ctx.effect(
+    () =>
+      tools.register({
+        name: 'todo_update',
+        description:
+          "Change one task in the user's Todo panel: rename it, edit its details or due time, or mark it completed / reopen it.",
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'The id `todo_list` shows for the task.' },
+            title: { type: 'string', description: 'New title.' },
+            detail: { type: 'string', description: 'New details; an empty string clears them.' },
+            due: { type: 'string', description: 'New due time; an empty string clears it.' },
+            done: {
+              type: 'boolean',
+              description: 'true marks the task completed, false reopens it.',
+            },
+          },
+        },
+        output: {
+          schema: itemSchema(),
+          render: (args, value) => {
+            const changed = [];
+            if (typeof args.title === 'string') changed.push('标题');
+            if (typeof args.detail === 'string') changed.push('详情');
+            if (typeof args.due === 'string') changed.push('截止时间');
+            if (typeof args.done === 'boolean') changed.push(args.done ? '标记为已完成' : '标记为未完成');
+            const head = changed.length > 0 ? `已更新待办（${changed.join('、')}）：` : '待办未改动：';
+            return [{ type: 'text', text: `${head}\n${describeItems([value])}` }];
+          },
+        },
+        async execute(args) {
+          const id = typeof args.id === 'string' ? args.id : '';
+          if (id === '') throw new Error('todo_update needs an id');
+          const outcome = await transact((document) => {
+            const item = findItem(document, id);
+            if (typeof args.title === 'string') item.title = args.title;
+            if (typeof args.detail === 'string') item.detail = args.detail;
+            if (typeof args.due === 'string') item.due = args.due;
+            if (typeof args.done === 'boolean') {
+              item.done = args.done;
+              item.completedAt = args.done ? new Date().toISOString() : null;
+            }
+            return { value: toToolItem(item) };
+          });
+          return outcome.value;
+        },
+        presentCall: (args) => ({
+          card: 'generic',
+          title: 'Update todo',
+          kind: 'edit',
+          rawInput: args ?? {},
+        }),
+      }),
+    'todo-panel: todo_update tool',
+  );
+
+  ctx.effect(
+    () =>
+      tools.register({
+        name: 'todo_remove',
+        description:
+          "Delete one task from the user's Todo panel, together with the attachment it carries. Use it only for a task the user wants gone.",
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'The id `todo_list` shows for the task.' },
+          },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['ok', 'id'],
+            properties: {
+              ok: { type: 'boolean' },
+              id: { type: 'string' },
+            },
+          },
+          render: (args, value) => [
+            {
+              type: 'text',
+              text: `已从 Todo 面板删除待办 ${value.id}，它的附件也一起移除。`,
+            },
+          ],
+        },
+        async execute(args) {
+          const id = typeof args.id === 'string' ? args.id : '';
+          if (id === '') throw new Error('todo_remove needs an id');
+          const outcome = await transact((document) => {
+            const item = findItem(document, id);
+            document.items = document.items.filter((entry) => entry !== item);
+            delete document.attachments[id];
+            return { value: { ok: true, id } };
+          });
+          return outcome.value;
+        },
+        presentCall: (args) => ({
+          card: 'generic',
+          title: 'Remove todo',
+          kind: 'delete',
+          rawInput: args ?? {},
+        }),
+      }),
+    'todo-panel: todo_remove tool',
+  );
+
+  ctx.effect(
+    () =>
+      tools.register({
+        name: 'todo_attach',
+        description:
+          "Attach a local file to a task in the user's Todo panel. The file is copied into the panel's own state, so it survives restarts and port changes.",
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id', 'path'],
+          properties: {
+            id: { type: 'string', description: 'The id `todo_list` shows for the task.' },
+            path: {
+              type: 'string',
+              description:
+                'The file to attach; a relative path resolves against the current working directory.',
+            },
+          },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['name', 'size', 'type'],
+            properties: {
+              name: { type: 'string' },
+              size: { type: 'integer' },
+              type: { type: 'string' },
+            },
+          },
+          render: (args, value) => [
+            {
+              type: 'text',
+              text: `已为待办 ${String(args.id ?? '')} 添加附件 ${value.name}（${formatSize(value.size)}，${value.type}）。`,
+            },
+          ],
+        },
+        async execute(args) {
+          const id = typeof args.id === 'string' ? args.id : '';
+          if (id === '') throw new Error('todo_attach needs an id');
+          const given = typeof args.path === 'string' ? args.path.trim() : '';
+          if (given === '') throw new Error('todo_attach needs a path');
+          // The model speaks in transcript paths, so a relative one follows the
+          // working directory of this Host process, where the session started.
+          const source = resolve(given);
+          let bytes;
+          try {
+            bytes = await readFile(source);
+          } catch (error) {
+            throw new Error(
+              `cannot read ${source}: ${String(error && error.message ? error.message : error)}`,
+            );
+          }
+          if (bytes.length > MAX_BODY_BYTES) {
+            throw new Error(`the attachment is larger than 32 MB: ${source}`);
+          }
+          const name = basename(source);
+          const type = mimeFor(name);
+          const outcome = await transact((document) => {
+            const item = findItem(document, id);
+            item.attachment = { name, size: bytes.length, type, stored: true };
+            document.attachments[id] = `data:${type};base64,${bytes.toString('base64')}`;
+            return { value: { name, size: bytes.length, type } };
+          });
+          return outcome.value;
+        },
+        presentCall: (args) => ({
+          card: 'generic',
+          title: 'Attach file to todo',
+          kind: 'edit',
+          rawInput: args ?? {},
+        }),
+      }),
+    'todo-panel: todo_attach tool',
   );
 }

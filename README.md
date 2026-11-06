@@ -11,7 +11,8 @@ A todo panel for the DeepSeek Harness Web UI. It floats above the right side of 
 - **Two views** — `Home` groups items into **Today** (due today) and **More** (everything else, including items with no due date), both collapsible. `All` splits **unfinished** and **finished**; the finished list shows 10 at a time and loads 20 more per click.
 - **Detail page, then edit on demand** — `+` opens a form for the title, details, due time and one attachment. Clicking an item opens a read-only page first; nothing can be changed until **Edit** in the top right switches it to the form.
 - **Attachments behave by type** — clicking an image attachment opens it full-screen (click the backdrop or press Escape to close); any other file downloads.
-- **Pomodoro timer** — the clock in the panel header opens a timer page: focus length (presets 15 / 30 / 45 / 60 minutes, or any value from 1 to 180 typed by hand), a round count (1–12) and a break interval (presets 3 / 5 / 10 / 15, or any value from 1 to 120). Focus and break alternate automatically, and each phase end raises a Windows notification. The countdown keeps running — and stays visible in the header — while you work in the list.
+- **Pomodoro timer** — the clock in the panel header opens a timer page: focus length (presets 15 / 30 / 45 / 60 minutes, or any value from 1 to 180 typed by hand), a round count (1–12) and a break interval (presets 3 / 5 / 10 / 15, or any value from 1 to 120). The countdown stays visible in the header, with a **pause / resume** button right beside it that freezes the remaining time and continues from there.
+- **A phase ends, then waits for you** — when focus or break hits zero it does not switch phases on its own: the countdown stops, an alert appears in the panel (reopening it if it was closed) and Windows gets a toast. The next phase starts when you press **Start break** or **Start focus**; **Later** tucks the alert away.
 - **Bilingual UI** — Chinese and English, following the app's language setting.
 - **Survives restarts** — the list, the attachment files, the panel position and the timer settings live in one JSON document under `~/.dsh/todo-panel/`, written by the plugin's Host half. Nothing is uploaded anywhere.
 
@@ -45,25 +46,43 @@ Inside the timer page, `Start` / `Pause` control the current phase and `Reset` r
 
 ## Notifications
 
-Phase ends are announced through the browser's notification API, which Windows surfaces as a toast. Permission is requested the first time you press `Start`; if it is denied, the timer still runs but stays silent.
+A phase end does two things so you cannot miss it:
 
-Two things worth knowing:
+1. an alert appears in the panel (reopening it when it was closed) with **Start break / Start focus** and **Later**;
+2. a Windows toast is raised.
+
+The toast goes through the page's `Notification` API first; when that is unavailable — no permission, or a host that cannot show one — the plugin's Host half falls back to a toast from PowerShell. Permission is requested the first time you press `Start`, and the timer page has a **Test notification** button so you can check the system side by hand.
+
+Known limits:
 
 - A window minimised for a long time has its timers throttled by Chromium, so a notification can arrive up to about a minute late. The plugin re-checks the phase as soon as the window becomes visible again.
 - Windows Focus Assist / Do Not Disturb suppresses the toast; that is outside the plugin's control.
+- When notifications are refused, the in-panel alert still works.
 
 ## Agent access
 
-The Host half registers a read-only tool named `todo_list`, so any conversation can reach the list: "what's on my todo list", "what's still open today" — the agent calls it on its own.
+The Host half registers one set of tools, available in every conversation once the plugin is installed.
 
-| Parameter | Meaning |
+Read:
+
+| Tool | Parameters | Returns |
+| --- | --- | --- |
+| `todo_list` | `status`: `all` (default) / `open` / `done`; `limit`: 1-200, default 100 | title, details, due time, completion state, attachment names |
+
+Write (each one changes your list; the panel picks the change up within seconds):
+
+| Tool | Parameters |
 | --- | --- |
-| `status` | `all` (default) / `open` / `done` |
-| `limit` | How many tasks to return, 1-200, default 100 |
+| `todo_add` | `title` (required), `detail`, `due` |
+| `todo_update` | `id` (required) plus any of `title` / `detail` / `due` / `done` — `done` ticks or unticks it |
+| `todo_remove` | `id` (required) |
+| `todo_attach` | `id` (required), `path` (a local file, at most 32 MB) — a screenshot is just an image file |
 
-It returns the title, details, due time, completion state and attachment names; attachment contents never enter the transcript, only the name and size. The tool is read-only: the agent can look, but cannot change your list.
+So "tick off the workbench test", "add a note to that one: waiting on the API", "attach this screenshot to item 4" all work.
 
-The tool is registered when the plugin loads, so after installing it or editing `index.js`, reload the plugin (turn it off and on again in the plugin list) or restart DSH.
+Synchronisation uses the document's `rev` counter: the panel saves with the revision it last saw, the Host answers 409 when someone else moved on, and the panel merges and saves again. An idle panel polls every four seconds, so an agent's change shows up on its own.
+
+The tools register when the plugin loads, so after installing it or editing `index.js`, reload the plugin (turn it off and on again in the plugin list) or restart DSH.
 
 ## Storage
 
