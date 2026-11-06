@@ -49,6 +49,8 @@ window.__ModuleLoader__.load({
         newTitle: '新建待办',
         editTitle: '编辑待办',
         edit: '编辑',
+        openDetail: '查看详情',
+        viewTitle: '待办详情',
         fieldTitle: '事件名称',
         titlePlaceholder: '要做什么？',
         fieldDetail: '详情',
@@ -83,6 +85,10 @@ window.__ModuleLoader__.load({
         pomoAllDone: '全部番茄完成 🎉',
         pomoNotification: '番茄钟',
         attachmentMissing: '附件已不可用',
+        detailEmpty: '没有更多说明',
+        previewImage: '点击放大查看',
+        downloadFile: '点击下载',
+        closePreview: '关闭',
       },
       en: {
         title: 'Todo',
@@ -101,6 +107,8 @@ window.__ModuleLoader__.load({
         newTitle: 'New todo',
         editTitle: 'Edit todo',
         edit: 'Edit',
+        openDetail: 'View details',
+        viewTitle: 'Todo details',
         fieldTitle: 'Title',
         titlePlaceholder: 'What needs doing?',
         fieldDetail: 'Details',
@@ -135,6 +143,10 @@ window.__ModuleLoader__.load({
         pomoAllDone: 'All pomodoros done 🎉',
         pomoNotification: 'Pomodoro',
         attachmentMissing: 'Attachment unavailable',
+        detailEmpty: 'No further details',
+        previewImage: 'Click to enlarge',
+        downloadFile: 'Click to download',
+        closePreview: 'Close',
       },
     };
 
@@ -233,6 +245,21 @@ window.__ModuleLoader__.load({
 .dshtodo-pomo-input:disabled{color:var(--dsw-alias-label-secondary);background:transparent;cursor:not-allowed}
 .dshtodo-pomo-unit{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .dshtodo-pomo-actions{display:flex;gap:8px;width:100%;justify-content:center;margin-top:6px}
+.dshtodo-text-btn{flex:none;height:22px;padding:0 7px;margin-right:2px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:12px;cursor:pointer}
+.dshtodo-text-btn:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent));color:var(--dsw-alias-label-primary)}
+.dshtodo-detail{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:14px 14px 18px}
+.dshtodo-detail-title{margin:0;font-size:15px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
+.dshtodo-detail-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dshtodo-detail-chip{padding:1px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dshtodo-detail-chip.is-done{background:color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);border-color:transparent}
+.dshtodo-detail-body{margin:0;font-size:12.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary)}
+.dshtodo-detail-body.is-empty{color:var(--dsw-alias-label-secondary)}
+.dshtodo-detail-file{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:12px;text-align:left;cursor:pointer}
+.dshtodo-detail-file:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
+.dshtodo-lightbox{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:40px;background:rgba(0,0,0,.72);cursor:zoom-out}
+.dshtodo-lightbox-img{max-width:100%;max-height:100%;object-fit:contain;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.45);cursor:default}
+.dshtodo-lightbox-close{position:fixed;top:16px;right:16px;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:none;border-radius:50%;background:rgba(255,255,255,.16);color:#fff;cursor:pointer}
+.dshtodo-lightbox-close:hover{background:rgba(255,255,255,.3)}
 `;
 
     // --- icons -------------------------------------------------------------
@@ -1003,6 +1030,15 @@ window.__ModuleLoader__.load({
       return date.toLocaleDateString(locale, { month: 'numeric', day: 'numeric' }) + ' ' + time;
     }
 
+    /** True for an attachment the panel can show inline instead of downloading. */
+    function isImageAttachment(attachment) {
+      if (!attachment) return false;
+      const type = typeof attachment.type === 'string' ? attachment.type : '';
+      if (/^image\//i.test(type)) return true;
+      const name = typeof attachment.name === 'string' ? attachment.name : '';
+      return /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(name);
+    }
+
     function formatSize(bytes) {
       if (!Number.isFinite(bytes) || bytes <= 0) return '';
       if (bytes < 1024) return bytes + ' B';
@@ -1256,6 +1292,7 @@ window.__ModuleLoader__.load({
       useLocaleVersion();
       const t = translate;
       const initial = props.initial || null;
+      const editing = props.mode === 'edit';
       const [title, setTitle] = React.useState(initial ? initial.title : '');
       const [detail, setDetail] = React.useState(initial ? initial.detail : '');
       const [due, setDue] = React.useState(
@@ -1308,6 +1345,46 @@ window.__ModuleLoader__.load({
       };
 
       const shown = file || attachment;
+
+      // Read-only detail page: the header's Edit button switches to the form.
+      if (!editing) {
+        return h(
+          'article',
+          { className: 'dshtodo-detail' },
+          h('h2', { className: 'dshtodo-detail-title' }, initial.title),
+          h(
+            'div',
+            { className: 'dshtodo-detail-meta' },
+            h(
+              'span',
+              { className: 'dshtodo-detail-chip' + (initial.done ? ' is-done' : '') },
+              initial.done ? t('sectionDone') : t('sectionOpen'),
+            ),
+            initial.due ? h('span', null, t('fieldDue') + ' · ' + formatDue(initial.due)) : null,
+          ),
+          h(
+            'p',
+            { className: 'dshtodo-detail-body' + (initial.detail ? '' : ' is-empty') },
+            initial.detail || t('detailEmpty'),
+          ),
+          initial.attachment
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dshtodo-detail-file',
+                  title: isImageAttachment(initial.attachment)
+                    ? t('previewImage')
+                    : t('downloadFile'),
+                  onClick: () => props.onAttachment(initial),
+                },
+                h(PaperclipIcon, null),
+                h('span', { className: 'dshtodo-file-name' }, initial.attachment.name),
+                h('span', { className: 'dshtodo-label' }, formatSize(initial.attachment.size)),
+              )
+            : null,
+        );
+      }
 
       return h(
         'form',
@@ -1435,6 +1512,9 @@ window.__ModuleLoader__.load({
 
       const [formId, setFormId] = React.useState(null);
       const [editingId, setEditingId] = React.useState(null);
+      /** 'view' shows the read-only detail page; only Edit switches to 'edit'. */
+      const [formMode, setFormMode] = React.useState('view');
+      const [preview, setPreview] = React.useState(null);
       const [pomoOpen, setPomoOpen] = React.useState(false);
       const [tab, setTab] = React.useState('home');
       const [expanded, setExpanded] = React.useState({
@@ -1455,6 +1535,15 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         positionRef.current = position;
       }, [position]);
+
+      React.useEffect(() => {
+        if (!preview) return undefined;
+        const onKey = (event) => {
+          if (event.key === 'Escape') setPreview(null);
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+      }, [preview]);
 
       /** Every position change goes through the store, which saves the document. */
       const setPosition = (next) => {
@@ -1578,14 +1667,21 @@ window.__ModuleLoader__.load({
         setItems((current) => current.filter((item) => item.id !== id));
       };
 
-      const openAttachment = async (item) => {
-        if (!item.attachment || !item.attachment.stored) return;
+      /** Images open in the viewer; anything else downloads. */
+      const openAttachment = (item) => {
+        const attachment = item.attachment;
+        if (!attachment || !attachment.stored) return;
         try {
-          const anchor = downloadRef.current;
           const url = attachmentUrl(item.id);
-          if (!url || !anchor) return;
+          if (!url) return;
+          if (isImageAttachment(attachment)) {
+            setPreview({ url, name: attachment.name || '' });
+            return;
+          }
+          const anchor = downloadRef.current;
+          if (!anchor) return;
           anchor.href = url;
-          anchor.download = item.attachment.name || 'attachment';
+          anchor.download = attachment.name || 'attachment';
           anchor.click();
         } catch (error) {
           console.error('[todo-panel] attachment could not be opened', error);
@@ -1594,11 +1690,13 @@ window.__ModuleLoader__.load({
 
       const openCreate = () => {
         setEditingId(null);
+        setFormMode('edit');
         setFormId(nextId());
       };
 
       const openEdit = (item) => {
         setEditingId(item.id);
+        setFormMode('view');
         setFormId(item.id);
       };
 
@@ -1655,8 +1753,8 @@ window.__ModuleLoader__.load({
               className: 'dshtodo-item-main',
               role: 'button',
               tabIndex: 0,
-              title: t('edit'),
-              'aria-label': t('edit') + ' ' + item.title,
+              title: t('openDetail'),
+              'aria-label': t('openDetail') + ' ' + item.title,
               onClick: () => openEdit(item),
               onKeyDown: (event) => {
                 if (event.target !== event.currentTarget) return;
@@ -1833,7 +1931,9 @@ window.__ModuleLoader__.load({
                 ? t('pomo')
                 : formOpen
                   ? editingId
-                    ? t('editTitle')
+                    ? formMode === 'view'
+                      ? t('viewTitle')
+                      : t('editTitle')
                     : t('newTitle')
                   : t('title'),
             ),
@@ -1841,6 +1941,19 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'dshtodo-actions' },
+              formOpen && formMode === 'view' && editingId
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dshtodo-text-btn',
+                      title: t('edit'),
+                      'aria-label': t('edit'),
+                      onClick: () => setFormMode('edit'),
+                    },
+                    t('edit'),
+                  )
+                : null,
               pomoOpen
                 ? null
                 : h(
@@ -1887,6 +2000,8 @@ window.__ModuleLoader__.load({
                 key: formId,
                 id: formId,
                 initial: editingItem,
+                mode: formMode,
+                onAttachment: openAttachment,
                 onCancel: closeForm,
                 onSubmit: submitForm,
               })
@@ -1928,6 +2043,38 @@ window.__ModuleLoader__.load({
               ),
           h('a', { ref: downloadRef, style: { display: 'none' }, 'aria-hidden': true }),
         ),
+        preview
+          ? h(
+              'div',
+              {
+                className: 'dshtodo-lightbox',
+                role: 'dialog',
+                'aria-modal': 'true',
+                'aria-label': preview.name || t('previewImage'),
+                onClick: () => setPreview(null),
+              },
+              h('img', {
+                className: 'dshtodo-lightbox-img',
+                src: preview.url,
+                alt: preview.name || '',
+                onClick: (event) => event.stopPropagation(),
+              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dshtodo-lightbox-close',
+                  title: t('closePreview'),
+                  'aria-label': t('closePreview'),
+                  onClick: (event) => {
+                    event.stopPropagation();
+                    setPreview(null);
+                  },
+                },
+                h(CloseIcon, { size: 14 }),
+              ),
+            )
+          : null,
       );
     }
 
