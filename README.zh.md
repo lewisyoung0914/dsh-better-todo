@@ -7,6 +7,8 @@
 
 一个挂在 DeepSeek Harness Web UI 右侧的待办面板：悬浮在窗口之上，拖到哪边就吸附到哪边，标题栏里还带一个番茄钟。
 
+![悬浮在界面上的待办面板](assets/screenshots/in-app.jpg)
+
 ## 功能
 
 - **悬浮面板 + 四边吸附** —— 拖标题栏移动，松手后自动贴到最近的窗口边缘（左/右/上/下），不会停在半截出屏的位置；双击标题栏复位。
@@ -20,6 +22,12 @@
 - **agent 能读也能改** —— 插件给 agent 注册了 `todo_list` / `todo_add` / `todo_update` / `todo_remove` / `todo_attach`，所以「把这条勾掉」「加个备注」「把这张截图挂上去」都能用说的；改完面板几秒内自己同步。
 - **输入框里的 `/todo`** —— 手快的话直接打字：`/todo` 看列表、`/todo add 写周报`、`/todo finish 3`。固定规则解析，不花模型调用。
 - **重启不丢** —— 条目、附件、面板位置、番茄钟设置都写进 `~/.dsh/todo-panel/` 下的一个 JSON 文档，由插件的宿主半边落盘，不上传任何地方。
+
+## 截图
+
+| 列表 | 新建待办 | 番茄钟 |
+| --- | --- | --- |
+| ![一条已勾掉、一条未完成，以及「更多」分组](assets/screenshots/panel.jpg) | ![新建待办：事件名称、详情、截止时间和一个附件](assets/screenshots/new-item.jpg) | ![番茄钟页面：时长、番茄数和休息间隔](assets/screenshots/timer.jpg) |
 
 ## 安装
 
@@ -151,6 +159,7 @@ dsh plugin --profile web add dsh-better-todo
 
 ## 更新记录
 
+- `1.6.5` —— 加了截图（面板、新建待办、番茄钟），并附 `screenshots.json` 供市场详情页使用。
 - `1.6.4` —— 改由 GitHub Actions 通过 Trusted Publishing 发布到 npm，每个 tarball 附带 provenance 签名。
 - `1.6.3` —— 番茄钟页面去掉了「测试通知」按钮。
 - `1.6.2` —— 两份 README 按 agent 工具、`/todo` 和番茄钟重写了一遍。

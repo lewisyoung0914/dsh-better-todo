@@ -7,6 +7,8 @@ English | [中文](README.zh.md)
 
 A todo panel for the DeepSeek Harness Web UI. It floats above the right side of the window, snaps to whichever edge you drag it near, and carries a pomodoro timer in its header.
 
+![The todo panel floating over the app](assets/screenshots/in-app.jpg)
+
 ## Features
 
 - **Floating panel, four-edge snapping** — drag the header to move it; release and it settles against the nearest window edge (left / right / top / bottom) so it never ends up half off-screen. Double-click the header to reset the position.
@@ -20,6 +22,12 @@ A todo panel for the DeepSeek Harness Web UI. It floats above the right side of 
 - **The agent can read and write** — the plugin registers `todo_list`, `todo_add`, `todo_update`, `todo_remove` and `todo_attach`, so "tick that one off", "add a note", "attach this screenshot" all work by asking; the panel syncs a few seconds later.
 - **`/todo` in the composer** — for fast entry: `/todo` lists, `/todo add Write the report`, `/todo finish 3`. Parsed by fixed rules, so it costs no model call.
 - **Survives restarts** — the list, the attachment files, the panel position and the timer settings live in one JSON document under `~/.dsh/todo-panel/`, written by the plugin's Host half. Nothing is uploaded anywhere.
+
+## Screenshots
+
+| The list | A new item | The pomodoro |
+| --- | --- | --- |
+| ![An item ticked off, another one open, and the More group](assets/screenshots/panel.jpg) | ![The new-item form: title, details, due time and one attachment](assets/screenshots/new-item.jpg) | ![The pomodoro page with focus length, rounds and break interval](assets/screenshots/timer.jpg) |
 
 ## Install
 
@@ -151,6 +159,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.5` — screenshots of the panel, the item form and the timer, plus a `screenshots.json` for market listings.
 - `1.6.4` — releases are published to npm by GitHub Actions through Trusted Publishing, with a provenance attestation attached to each tarball.
 - `1.6.3` — the timer page no longer carries a test-notification button.
 - `1.6.2` — both READMEs rewritten around the agent tools, `/todo` and the timer.
