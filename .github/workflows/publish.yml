@@ -1,0 +1,59 @@
+name: Publish to npm
+
+# Publishes the package through npm's Trusted Publishing (OIDC), so no npm token
+# and no one-time password is involved: the publish is authorized by the
+# "Trusted Publisher" binding on the npm package page, and `--provenance` makes
+# npm record which commit, workflow and repository produced the tarball.
+#
+# Cut a release by pushing a tag that matches package.json:
+#   git tag -a v1.6.4 -m "dsh-better-todo 1.6.4" && git push origin v1.6.4
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (must match package.json version, e.g. v1.6.4)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # required for Trusted Publishing and provenance
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check the tag matches package.json
+        run: |
+          ref="${{ inputs.tag || github.ref_name }}"
+          expected="${ref#v}"
+          actual="$(node -p "require('./package.json').version")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::tag says $expected but package.json says $actual — bump one of them"
+            exit 1
+          fi
+          echo "publishing $actual"
+
+      - name: Publish
+        # No NODE_AUTH_TOKEN on purpose: Trusted Publishing exchanges the GitHub
+        # OIDC token for a short-lived npm credential, and refuses to run if the
+        # package has not been bound to this repository and workflow yet.
+        run: npm publish --provenance --access public
