@@ -41,7 +41,13 @@ dsh plugin --profile web add https://github.com/lewisyoung0914/dsh-better-todo
 dsh plugin --profile web add dsh-better-todo
 ```
 
-需要提供 `shell.overlay` 与 `sidebar.footer.action` 两个前端槽位的 DSH 版本（开发验证于 `0.2.1-rc.3`）。
+需要提供 `shell.overlay` 与 `sidebar.footer.action` 两个前端槽位的 DSH 版本。包的宿主要求声明在 `engines.dsh` 里：
+
+```
+>=0.2.1-rc.1 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0-0
+```
+
+之所以是两个分支：node-semver 只有在范围里存在一个**与版本 `major.minor.patch` 完全相同、且自身带预发布标签**的比较符时，才放行预发布版本。写成单个 `>=0.2.1-rc.1 <0.3.0` 会静默排除 `0.2.2-rc.1`——也就是它的开发验证版本。
 
 ## 用法
 
@@ -159,6 +165,7 @@ dsh plugin --profile web add dsh-better-todo
 
 ## 更新记录
 
+- `1.6.8` —— 声明了 `engines.dsh`，安装器和市场卡片可以据此校验宿主要求，不再显示「未声明宿主要求」。
 - `1.6.7` —— 每次写入都把上一版留成 `state.json.bak`，一次坏的保存最多退一代，不会丢整份列表。
 - `1.6.6` —— 面板路由、`/todo` 和 5 个 agent 工具改为通过 `ctx.inject` 注册，profile 把插件排在 Host 的 web server 与注册表之前时不会再一起失效。
 - `1.6.5` —— 加了截图（面板、新建待办、番茄钟），并附 `screenshots.json` 供市场详情页使用。

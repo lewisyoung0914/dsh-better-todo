@@ -41,7 +41,13 @@ Then restart `dsh web` (or the desktop app) and refresh the page. Once the plugi
 dsh plugin --profile web add dsh-better-todo
 ```
 
-Requires a DSH build that provides the web client slots `shell.overlay` and `sidebar.footer.action` (developed against `0.2.1-rc.3`).
+Requires a DSH build that provides the web client slots `shell.overlay` and `sidebar.footer.action`. The package declares its host requirement in `engines.dsh`:
+
+```
+>=0.2.1-rc.1 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0-0
+```
+
+Two branches, because of how node-semver treats prereleases: a prerelease version only satisfies a range when some comparator on its exact `major.minor.patch` tuple also carries a prerelease tag. A single `>=0.2.1-rc.1 <0.3.0` would silently reject `0.2.2-rc.1`, the build this is developed against.
 
 ## Usage
 
@@ -159,6 +165,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.8` — declares `engines.dsh`, so the installer and the market card can check the host requirement instead of showing it as undeclared.
 - `1.6.7` — every write keeps the previous document as `state.json.bak`, so one bad save costs one generation instead of the whole list.
 - `1.6.6` — the panel's routes, `/todo` and the five agent tools now register through `ctx.inject`, so a profile that mounts this plugin before the Host's web server and registries no longer loses them.
 - `1.6.5` — screenshots of the panel, the item form and the timer, plus a `screenshots.json` for market listings.
