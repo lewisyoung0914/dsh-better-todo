@@ -1,5 +1,8 @@
 # dsh-better-todo
 
+[![npm version](https://img.shields.io/npm/v/dsh-better-todo.svg)](https://www.npmjs.com/package/dsh-better-todo)
+[![license](https://img.shields.io/npm/l/dsh-better-todo.svg)](LICENSE)
+
 English | [中文](README.zh.md)
 
 A todo panel for the DeepSeek Harness Web UI. It floats above the right side of the window, snaps to whichever edge you drag it near, and carries a pomodoro timer in its header.
@@ -148,6 +151,9 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.4` — releases are published to npm by GitHub Actions through Trusted Publishing, with a provenance attestation attached to each tarball.
+- `1.6.3` — the timer page no longer carries a test-notification button.
+- `1.6.2` — both READMEs rewritten around the agent tools, `/todo` and the timer.
 - `1.6.1` — `/todo` accepts everyday wording (完成 / 删掉 / 已完成 …) and turns a whole sentence into a task.
 - `1.6.0` — the `/todo` slash command.
 - `1.5.0` — agent writes (add / update / remove / attach), the `rev` protocol, a pomodoro phase that waits for a click, the header pause button, Host toasts through PowerShell.

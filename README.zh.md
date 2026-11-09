@@ -1,5 +1,8 @@
 # dsh-better-todo
 
+[![npm version](https://img.shields.io/npm/v/dsh-better-todo.svg)](https://www.npmjs.com/package/dsh-better-todo)
+[![license](https://img.shields.io/npm/l/dsh-better-todo.svg)](LICENSE)
+
 [English](README.md) | 中文
 
 一个挂在 DeepSeek Harness Web UI 右侧的待办面板：悬浮在窗口之上，拖到哪边就吸附到哪边，标题栏里还带一个番茄钟。
@@ -148,6 +151,9 @@ dsh plugin --profile web add dsh-better-todo
 
 ## 更新记录
 
+- `1.6.4` —— 改由 GitHub Actions 通过 Trusted Publishing 发布到 npm，每个 tarball 附带 provenance 签名。
+- `1.6.3` —— 番茄钟页面去掉了「测试通知」按钮。
+- `1.6.2` —— 两份 README 按 agent 工具、`/todo` 和番茄钟重写了一遍。
 - `1.6.1` —— `/todo` 认日常说法（新增/完成/删掉/已完成等），整句也能直接存成任务。
 - `1.6.0` —— 新增 `/todo` 斜杠命令。
 - `1.5.0` —— agent 可写（新增/修改/删除/挂附件）、`rev` 修订号协议、番茄钟到点等待点击、标题栏暂停按钮、宿主 PowerShell toast。
