@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -358,6 +358,10 @@ export function apply(ctx) {
   const writeNow = async (document) => {
     try {
       await mkdir(dirname(file), { recursive: true });
+      // The previous document is kept beside the new one. A bad write, or a page
+      // that saves an older copy over newer items, then costs one generation
+      // instead of the whole list.
+      await copyFile(file, `${file}.bak`).catch(() => {});
       const temporary = `${file}.tmp`;
       await writeFile(temporary, JSON.stringify(document), 'utf8');
       await rename(temporary, file);

@@ -159,6 +159,7 @@ dsh plugin --profile web add dsh-better-todo
 
 ## 更新记录
 
+- `1.6.7` —— 每次写入都把上一版留成 `state.json.bak`，一次坏的保存最多退一代，不会丢整份列表。
 - `1.6.6` —— 面板路由、`/todo` 和 5 个 agent 工具改为通过 `ctx.inject` 注册，profile 把插件排在 Host 的 web server 与注册表之前时不会再一起失效。
 - `1.6.5` —— 加了截图（面板、新建待办、番茄钟），并附 `screenshots.json` 供市场详情页使用。
 - `1.6.4` —— 改由 GitHub Actions 通过 Trusted Publishing 发布到 npm，每个 tarball 附带 provenance 签名。
