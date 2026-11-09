@@ -538,51 +538,50 @@ export function apply(ctx) {
       },
     });
 
-  const webServer = ctx.get('webServer');
-  if (webServer === undefined) {
-    console.warn('[todo-panel] web server service missing; the panel cannot load or save its state');
-  } else {
+  // Services mount in composition order, and a bundle-installed plugin can run
+  // before the Host's registries do. `ctx.inject` re-runs each registration when
+  // its service becomes available, so the panel no longer goes blind when the
+  // profile loads it first.
+  ctx.inject(["webServer"], (webCtx) => {
+    const webServer = webCtx.webServer;
     try {
-      ctx.effect(() => registerRoutes(webServer), 'todo-panel: http routes');
+      webCtx.effect(() => registerRoutes(webServer), "todo-panel: http routes");
     } catch (error) {
       // An earlier load of this plugin already owns the route and still answers
       // it; failing here would take the panel and the tool down with it.
       console.warn(
-        '[todo-panel] the state route is already registered; keeping the existing one:',
+        "[todo-panel] the state route is already registered; keeping the existing one:",
         String(error && error.message ? error.message : error),
       );
       // That older handler knows nothing about the toast endpoint, so serve it
       // on a path of its own until the process restarts.
       try {
-        ctx.effect(
+        webCtx.effect(
           () =>
             webServer.register({
-              kind: 'exact',
+              kind: "exact",
               path: `${ROUTE_PREFIX}-notify`,
               handler: handleNotify,
             }),
-          'todo-panel: notify route',
+          "todo-panel: notify route",
         );
       } catch (fallbackError) {
         console.warn(
-          '[todo-panel] the notify route is already registered too:',
+          "[todo-panel] the notify route is already registered too:",
           String(fallbackError && fallbackError.message ? fallbackError.message : fallbackError),
         );
       }
     }
-  }
+  });
 
   // The slash menu lists commands, not tools; `/todo` is what a person types.
-  const commands = ctx.get('commands');
-  if (commands === undefined) {
-    console.warn('[todo-panel] command registry missing; /todo will not be listed');
-  } else {
-    ctx.effect(
+  ctx.inject(["commands"], (commandCtx) => {
+    commandCtx.effect(
       () =>
-        commands.register({
-          name: 'todo',
-          description: '查看和管理 Todo 面板（all / add / finish / undo / remove）',
-          input: { hint: '[all | add <标题> | finish <序号> | undo <序号> | remove <序号>]' },
+        commandCtx.commands.register({
+          name: "todo",
+          description: "查看和管理 Todo 面板（all / add / finish / undo / remove）",
+          input: { hint: "[all | add <标题> | finish <序号> | undo <序号> | remove <序号>]" },
           recordInput: false,
           handler: async (invocation) => {
             try {
@@ -593,25 +592,28 @@ export function apply(ctx) {
                   ? { replace: result.document, value: result.text }
                   : { skip: true, value: result.text };
               });
-              return { kind: 'success', text: String(outcome.value ?? '') };
+              return { kind: "success", text: String(outcome.value ?? "") };
             } catch (error) {
               return {
-                kind: 'error',
+                kind: "error",
                 text: String(error && error.message ? error.message : error),
               };
             }
           },
         }),
-      'todo-panel: /todo command',
+      "todo-panel: /todo command",
     );
-  }
+  });
 
-  const tools = ctx.get('tools');
-  if (tools === undefined) {
-    console.warn('[todo-panel] tool registry missing; the agent cannot read the todo list');
-    return;
-  }
+  ctx.inject(["tools"], (toolCtx) => registerAgentTools(toolCtx, toolCtx.tools, transact));
+}
 
+/**
+ * The five agent tools. It lives outside `apply` so the injected context that
+ * carries `tools` can be handed straight in, and so a late-mounting registry
+ * gets them too.
+ */
+function registerAgentTools(ctx, tools, transact) {
   /**
    * One entry of the panel, flattened for the model: the same fields the panel
    * shows, with the attachment reduced to its name and size because the data

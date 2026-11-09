@@ -159,6 +159,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.6` — the panel's routes, `/todo` and the five agent tools now register through `ctx.inject`, so a profile that mounts this plugin before the Host's web server and registries no longer loses them.
 - `1.6.5` — screenshots of the panel, the item form and the timer, plus a `screenshots.json` for market listings.
 - `1.6.4` — releases are published to npm by GitHub Actions through Trusted Publishing, with a provenance attestation attached to each tarball.
 - `1.6.3` — the timer page no longer carries a test-notification button.
