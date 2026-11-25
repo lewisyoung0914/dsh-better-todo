@@ -170,6 +170,71 @@ window.__ModuleLoader__.load({
       },
     };
 
+    /**
+     * The dock's geometry, inline on purpose: a page that still holds an older
+     * copy of this stylesheet (a hot-swapped bundle, a second module instance)
+     * would otherwise win the cascade and leave the panel floating as a card.
+     * `top` is filled in per render — see `useHeaderBottom` — because the panel
+     * lives in the frame-wide overlay and must start under the conversation
+     * header instead of covering it.
+     */
+    const PANEL_STYLE = {
+      position: 'fixed',
+      right: 0,
+      bottom: 0,
+      left: 'auto',
+      width: 360,
+      maxHeight: 'none',
+      maxWidth: 'none',
+      margin: 0,
+      border: 'none',
+      borderLeft: '1px solid var(--dsw-alias-border-l1)',
+      borderRadius: 0,
+      boxShadow: '-12px 0 32px rgba(0, 0, 0, .10)',
+      zIndex: 20,
+    };
+
+    /**
+     * Bottom edge of the conversation header, in viewport pixels. The overlay
+     * seat spans the whole frame, so anchoring the dock there keeps the
+     * header's tabs and window controls clickable while the panel still runs
+     * from that edge to the bottom of the window. Zero when the header is not
+     * mounted (no Session), which the dock then reads as "full height".
+     */
+    function useHeaderBottom() {
+      const [bottom, setBottom] = React.useState(0);
+      React.useEffect(() => {
+        const selector = '[data-slot="conversation.header"]';
+        const measure = () => {
+          const header = document.querySelector(selector);
+          let next = 0;
+          if (header) {
+            // The slot anchor may be `display: contents`, in which case its own
+            // rect is empty and only its descendants carry a box.
+            const rect = header.getBoundingClientRect();
+            next = rect.height > 0 ? rect.bottom : 0;
+            if (next === 0) {
+              for (const child of header.querySelectorAll('*')) {
+                const childRect = child.getBoundingClientRect();
+                if (childRect.height > 0 && childRect.bottom > next) next = childRect.bottom;
+              }
+            }
+          }
+          setBottom(next > 0 ? Math.round(next) : 0);
+        };
+        measure();
+        // The header mounts after this panel whenever the frame renders the
+        // overlay seat first, and it changes height when the tabs wrap.
+        const interval = window.setInterval(measure, 1500);
+        window.addEventListener('resize', measure);
+        return () => {
+          window.clearInterval(interval);
+          window.removeEventListener('resize', measure);
+        };
+      }, []);
+      return bottom;
+    }
+
     const CSS = `
 .dshtodo-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font-family:inherit;cursor:pointer;transition:background .15s ease,color .15s ease}
 .dshtodo-btn>svg{flex:none}
@@ -188,10 +253,10 @@ window.__ModuleLoader__.load({
 .dshtodo-rail:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
 .dshtodo-rail-label{writing-mode:vertical-rl;text-orientation:mixed;letter-spacing:.2em;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .dshtodo-rail-count{font-size:11px;font-weight:600;color:var(--dsw-alias-brand-primary)}
-.dshtodo-header{flex:none;display:flex;align-items:center;gap:6px;padding:9px 8px 9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);user-select:none}
+.dshtodo-panel .dshtodo-header{flex:none;display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);user-select:none;cursor:default}
 .dshtodo-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dshtodo-sub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
-.dshtodo-actions{display:flex;align-items:center;gap:2px;flex:none}
+.dshtodo-panel .dshtodo-actions{display:flex;align-items:center;gap:6px;flex:none}
 .dshtodo-icon-btn{flex:none;width:24px;height:24px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .12s ease,color .12s ease,background .12s ease}
 .dshtodo-item:hover .dshtodo-icon-btn,.dshtodo-icon-btn:focus-visible,.dshtodo-icon-btn.is-visible{opacity:1}
 .dshtodo-icon-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary)}
@@ -1940,6 +2005,8 @@ window.__ModuleLoader__.load({
       const editingItem = editingId
         ? items.find((item) => item.id === editingId) || null
         : null;
+      const dockTop = useHeaderBottom();
+      const panelStyle = { ...PANEL_STYLE, top: dockTop + 'px' };
 
       // Folded: the whole dock becomes one rail button, so the panel keeps a
       // visible handle instead of vanishing behind the sidebar launcher.
@@ -1951,7 +2018,11 @@ window.__ModuleLoader__.load({
           h('style', null, CSS),
           h(
             'section',
-            { className: 'dshtodo-panel is-collapsed', 'aria-label': t('title') },
+            {
+              className: 'dshtodo-panel is-collapsed',
+              style: { ...panelStyle, width: 44 },
+              'aria-label': t('title'),
+            },
             h(
               'button',
               {
@@ -1979,6 +2050,7 @@ window.__ModuleLoader__.load({
           'section',
           {
             className: 'dshtodo-panel',
+            style: panelStyle,
             'aria-label': t('title'),
           },
           h(
