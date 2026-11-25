@@ -165,6 +165,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.14` — reserve the width on the centre column only, so the frame's title bar and window controls keep their place.
 - `1.6.13` — the frame reserves the dock's width, so the conversation sits beside the panel instead of under it.
 - `1.6.12` — the dock's left edge is a drag handle; the width is clamped to the window and persisted.
 - `1.6.11` — folded state is a single floating chevron instead of a full-height 44px rail.

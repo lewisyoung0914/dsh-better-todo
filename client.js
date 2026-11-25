@@ -269,9 +269,11 @@ window.__ModuleLoader__.load({
 .dshtodo-resize{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;touch-action:none;transition:background .12s ease}
 .dshtodo-resize:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent)}
 .dshtodo-resize.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent)}
-/* The dock is an overlay seat, so the frame reserves the space itself:
-   --dshtodo-dock-space is 0 while folded or closed, and the dock width while open. */
-[data-slot="root"]> *{padding-right:var(--dshtodo-dock-space,0px);box-sizing:border-box}
+/* The dock is an overlay seat, so the centre column reserves the space itself:
+   --dshtodo-dock-space is 0 while folded or closed, and the dock width while
+   open. Scoped to that column only, so the frame's title bar and window
+   controls keep their place. */
+[class*="_centerCol"]{padding-right:var(--dshtodo-dock-space,0px);box-sizing:border-box}
 .dshtodo-panel .dshtodo-header{flex:none;display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);user-select:none;cursor:default}
 .dshtodo-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dshtodo-sub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
