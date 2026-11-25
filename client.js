@@ -24,6 +24,19 @@ window.__ModuleLoader__.load({
     const DONE_PAGE = 10;
     const DONE_MORE = 20;
 
+    /** Dock width: default, floor, and the gap kept for the conversation column. */
+    const DOCK_DEFAULT = 360;
+    const DOCK_MIN = 260;
+    const DOCK_GAP = 320;
+
+    /** Keeps a dragged width inside the window and above the floor. */
+    function clampDockWidth(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return DOCK_DEFAULT;
+      const max = Math.max(DOCK_MIN, (window.innerWidth || 1280) - DOCK_GAP);
+      return Math.round(Math.min(Math.max(numeric, DOCK_MIN), max));
+    }
+
     /** Pomodoro presets offered in the panel, in minutes. */
     const POMO_FOCUS_CHOICES = [15, 30, 45, 60];
     const POMO_BREAK_CHOICES = [3, 5, 10, 15];
@@ -39,6 +52,7 @@ window.__ModuleLoader__.load({
         close: '收起待办',
         collapse: '收起侧栏',
         expand: '展开侧栏',
+        resize: '拖动调整宽度',
         tabHome: '首页',
         tabAll: '全部',
         sectionToday: '今天',
@@ -107,6 +121,7 @@ window.__ModuleLoader__.load({
         close: 'Hide todo list',
         collapse: 'Collapse sidebar',
         expand: 'Expand sidebar',
+        resize: 'Drag to resize',
         tabHome: 'Home',
         tabAll: 'All',
         sectionToday: 'Today',
@@ -250,6 +265,10 @@ window.__ModuleLoader__.load({
 .dshtodo-fab{position:fixed;right:12px;z-index:20;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);box-shadow:0 6px 18px rgba(0,0,0,.14);font-family:inherit;cursor:pointer;transition:color .15s ease,box-shadow .15s ease}
 .dshtodo-fab:hover{color:var(--dsw-alias-label-primary);box-shadow:0 8px 22px rgba(0,0,0,.18)}
 .dshtodo-fab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.dshtodo-panel.is-resizing{user-select:none}
+.dshtodo-resize{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;touch-action:none;transition:background .12s ease}
+.dshtodo-resize:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent)}
+.dshtodo-resize.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent)}
 .dshtodo-panel .dshtodo-header{flex:none;display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);user-select:none;cursor:default}
 .dshtodo-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dshtodo-sub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
@@ -662,8 +681,10 @@ window.__ModuleLoader__.load({
 
     const openStore = createStore(true, () => scheduleSave());
     const itemsStore = createStore([], () => scheduleSave());
-    /** The docked panel folds into a 44px rail; the flag rides in the document. */
+    /** The docked panel folds into a single floating chevron; the flag rides in the document. */
     const collapsedStore = createStore(false, () => scheduleSave());
+    /** Dock width in CSS pixels, dragged by the handle on its left edge. */
+    const widthStore = createStore(DOCK_DEFAULT, () => scheduleSave());
     // --- the state document -------------------------------------------------
     // One snapshot carries every store plus the attachment files. The Host half
     // writes it to disk; the page reads it once and re-posts after each change.
@@ -693,6 +714,7 @@ window.__ModuleLoader__.load({
         open: openStore.get(),
         items: itemsStore.get(),
         collapsed: collapsedStore.get(),
+        dockWidth: widthStore.get(),
         pomodoro: pomodoroStore.get(),
         attachments,
       };
@@ -803,6 +825,7 @@ window.__ModuleLoader__.load({
       itemsStore.set(parseItemsArray(document.items));
       openStore.set(typeof document.open === 'boolean' ? document.open : true);
       collapsedStore.set(document.collapsed === true);
+      widthStore.set(clampDockWidth(document.dockWidth));
       pomodoroStore.set(parsePomodoro(document.pomodoro));
       attachmentFiles.clear();
       const attachments = document.attachments;
@@ -1764,8 +1787,12 @@ window.__ModuleLoader__.load({
       const [doneLimit, setDoneLimit] = React.useState(DONE_PAGE);
 
       const downloadRef = React.useRef(null);
-      // Docked, not dragged: the only layout state is whether the rail is folded.
+      // Docked, not dragged: the layout state is the dock width and whether the
+      // column is folded away.
       const [collapsed, setCollapsed] = collapsedStore.use();
+      const [dockWidth, setDockWidth] = widthStore.use();
+      const resizeRef = React.useRef(null);
+      const [resizing, setResizing] = React.useState(false);
 
       React.useEffect(() => {
         if (!preview) return undefined;
@@ -2003,7 +2030,33 @@ window.__ModuleLoader__.load({
         ? items.find((item) => item.id === editingId) || null
         : null;
       const dockTop = useHeaderBottom();
-      const panelStyle = { ...PANEL_STYLE, top: dockTop + 'px' };
+      const panelStyle = { ...PANEL_STYLE, top: dockTop + 'px', width: dockWidth };
+
+      /** The left edge is a resize handle: the dock is anchored right, so the
+       *  width is whatever distance the pointer keeps from the window edge. */
+      const onResizeStart = (event) => {
+        if (event.button !== 0) return;
+        resizeRef.current = { startX: event.clientX, startWidth: dockWidth };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setResizing(true);
+      };
+
+      const onResizeMove = (event) => {
+        const drag = resizeRef.current;
+        if (!drag) return;
+        setDockWidth(clampDockWidth(drag.startWidth + (drag.startX - event.clientX)));
+      };
+
+      const onResizeEnd = (event) => {
+        if (!resizeRef.current) return;
+        resizeRef.current = null;
+        setResizing(false);
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          /* pointer already released */
+        }
+      };
 
       // Folded: a single floating chevron, not a full-height rail — the column
       // gives its width back to the conversation, and the sidebar launcher still
@@ -2035,10 +2088,21 @@ window.__ModuleLoader__.load({
         h(
           'section',
           {
-            className: 'dshtodo-panel',
+            className: 'dshtodo-panel' + (resizing ? ' is-resizing' : ''),
             style: panelStyle,
             'aria-label': t('title'),
           },
+          h('div', {
+            className: 'dshtodo-resize' + (resizing ? ' is-active' : ''),
+            role: 'separator',
+            'aria-orientation': 'vertical',
+            'aria-label': t('resize'),
+            title: t('resize'),
+            onPointerDown: onResizeStart,
+            onPointerMove: onResizeMove,
+            onPointerUp: onResizeEnd,
+            onPointerCancel: onResizeEnd,
+          }),
           h(
             'header',
             { className: 'dshtodo-header' },
