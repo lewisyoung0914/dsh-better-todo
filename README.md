@@ -11,7 +11,7 @@ A todo panel for the DeepSeek Harness Web UI. It floats above the right side of 
 
 ## Features
 
-- **Right dock, under the header** — the panel is pinned to the right edge and runs from below the conversation header to the bottom of the window, so the session tabs and the window controls stay reachable while the list gets the whole column. **Drag its left edge** to set the width (260px up to the window minus 320px); the header chevron folds it away to a single floating button, which reopens it.
+- **A real column, not an overlay** — the conversation column reserves the dock's width, so the panel sits *beside* the chat instead of covering it; the header, the composer and the messages all shrink to fit. **Drag the panel's left edge** to set the width (260px up to the window minus 320px); the header chevron folds it away to a single floating button, which reopens it.
 - **Sidebar launcher** — a `Todo` row sits beside Settings and shows how many items are still open. The panel remembers whether it was open.
 - **Two views** — `Home` groups items into **Today** (due today) and **More** (everything else, including items with no due date), both collapsible. `All` splits **unfinished** and **finished**; the finished list shows 10 at a time and loads 20 more per click.
 - **Detail page, then edit on demand** — `+` opens a form for the title, details, due time and one attachment. Clicking an item opens a read-only page first; nothing can be changed until **Edit** in the top right switches it to the form.
@@ -165,6 +165,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.13` — the frame reserves the dock's width, so the conversation sits beside the panel instead of under it.
 - `1.6.12` — the dock's left edge is a drag handle; the width is clamped to the window and persisted.
 - `1.6.11` — folded state is a single floating chevron instead of a full-height 44px rail.
 - `1.6.10` — the dock starts under the conversation header (measured at runtime) instead of covering the session tabs and window controls.
