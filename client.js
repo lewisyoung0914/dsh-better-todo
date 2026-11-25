@@ -2035,7 +2035,14 @@ window.__ModuleLoader__.load({
         ? items.find((item) => item.id === editingId) || null
         : null;
       const dockTop = useHeaderBottom();
-      const panelStyle = { ...PANEL_STYLE, top: dockTop + 'px', width: dockWidth };
+      const panelStyle = {
+        ...PANEL_STYLE,
+        // The centre column already reserves the width, so the dock starts right
+        // under the desktop title strip — not under the conversation header,
+        // which would leave a notch of empty column above it.
+        top: 'var(--dsh-windows-titlebar-height, 0px)',
+        width: dockWidth,
+      };
 
       // Reserve the column: the conversation shell shrinks by the dock width
       // instead of sliding underneath it, so the two sit side by side.

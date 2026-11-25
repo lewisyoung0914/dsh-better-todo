@@ -165,6 +165,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.15` — the dock starts at the desktop title strip, so the reserved column has no empty notch above it.
 - `1.6.14` — reserve the width on the centre column only, so the frame's title bar and window controls keep their place.
 - `1.6.13` — the frame reserves the dock's width, so the conversation sits beside the panel instead of under it.
 - `1.6.12` — the dock's left edge is a drag handle; the width is clamped to the window and persisted.
