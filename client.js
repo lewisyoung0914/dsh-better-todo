@@ -20,10 +20,6 @@ window.__ModuleLoader__.load({
     const LEGACY_DB_NAME = 'dsh-todo-panel';
     const LEGACY_DB_STORE = 'attachments';
 
-    /** Gap kept between a snapped edge and the window edge, in px. */
-    const EDGE_MARGIN = 16;
-    /** Pointer distance from an edge that pulls the panel onto it, in px. */
-    const SNAP_THRESHOLD = 44;
     /** First page of completed items, and how many each "show more" adds. */
     const DONE_PAGE = 10;
     const DONE_MORE = 20;
@@ -41,7 +37,8 @@ window.__ModuleLoader__.load({
         openPanel: '打开待办',
         closePanel: '关闭待办',
         close: '收起待办',
-        drag: '拖动标题栏可移动，靠近边缘自动吸附，双击复位',
+        collapse: '收起侧栏',
+        expand: '展开侧栏',
         tabHome: '首页',
         tabAll: '全部',
         sectionToday: '今天',
@@ -108,7 +105,8 @@ window.__ModuleLoader__.load({
         openPanel: 'Open todo list',
         closePanel: 'Close todo list',
         close: 'Hide todo list',
-        drag: 'Drag the header to move; edges snap into place, double-click to reset',
+        collapse: 'Collapse sidebar',
+        expand: 'Expand sidebar',
         tabHome: 'Home',
         tabAll: 'All',
         sectionToday: 'Today',
@@ -183,11 +181,14 @@ window.__ModuleLoader__.load({
 .dshtodo-btn-count{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-secondary)}
 .dshtodo-btn.is-open .dshtodo-btn-count{color:var(--dsw-alias-brand-primary)}
 .dshtodo-btn-badge{position:absolute;top:-1px;right:-1px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);font-size:9px;font-weight:600;line-height:14px;text-align:center}
-.dshtodo-panel{position:fixed;top:84px;right:16px;z-index:20;pointer-events:auto;display:flex;flex-direction:column;width:340px;max-width:calc(100vw - 32px);max-height:calc(100vh - 120px);overflow:hidden;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:0 12px 32px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.06);font-family:inherit}
-.dshtodo-panel.is-floating{right:auto}
-.dshtodo-panel.is-snapped{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 22%,transparent),0 12px 32px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.06)}
-.dshtodo-header{flex:none;display:flex;align-items:center;gap:6px;padding:9px 8px 9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;touch-action:none}
-.dshtodo-panel.is-dragging .dshtodo-header{cursor:grabbing}
+.dshtodo-panel{position:fixed;top:0;right:0;bottom:0;z-index:20;pointer-events:auto;display:flex;flex-direction:column;width:360px;max-width:100vw;height:100dvh;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 32px rgba(0,0,0,.10);font-family:inherit;transition:width .16s ease}
+.dshtodo-panel.is-collapsed{width:44px;box-shadow:-6px 0 18px rgba(0,0,0,.06)}
+.dshtodo-rail{flex:1;display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;padding:12px 0;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font-family:inherit;cursor:pointer}
+.dshtodo-rail:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);color:var(--dsw-alias-label-primary)}
+.dshtodo-rail:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
+.dshtodo-rail-label{writing-mode:vertical-rl;text-orientation:mixed;letter-spacing:.2em;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dshtodo-rail-count{font-size:11px;font-weight:600;color:var(--dsw-alias-brand-primary)}
+.dshtodo-header{flex:none;display:flex;align-items:center;gap:6px;padding:9px 8px 9px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);user-select:none}
 .dshtodo-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dshtodo-sub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
 .dshtodo-actions{display:flex;align-items:center;gap:2px;flex:none}
@@ -478,57 +479,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function readSnap(value, horizontal) {
-      const allowed = horizontal ? ['left', 'right'] : ['top', 'bottom'];
-      return allowed.indexOf(value) >= 0 ? value : null;
-    }
-
-    function parsePosition(parsed) {
-      if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
-        return {
-          left: parsed.left,
-          top: parsed.top,
-          snapX: readSnap(parsed.snapX, true),
-          snapY: readSnap(parsed.snapY, false),
-        };
-      }
-      return null;
-    }
-
-    function readPosition() {
-      const raw = readLegacy(LEGACY_POSITION);
-      if (!raw) return null;
-      try {
-        return parsePosition(JSON.parse(raw));
-      } catch (error) {
-        /* fall back to the default corner */
-      }
-      return null;
-    }
-
-    /** Re-derives a stored position for the current viewport, keeping docked edges. */
-    function anchorPosition(position, width, height) {
-      const centredLeft = clamp(
-        position.left,
-        EDGE_MARGIN,
-        Math.max(EDGE_MARGIN, window.innerWidth - width - EDGE_MARGIN),
-      );
-      const centredTop = clamp(position.top, 8, Math.max(8, window.innerHeight - 80));
-      let left = centredLeft;
-      let top = centredTop;
-      if (position.snapX === 'right') {
-        left = Math.max(EDGE_MARGIN, window.innerWidth - width - EDGE_MARGIN);
-      } else if (position.snapX === 'left') {
-        left = EDGE_MARGIN;
-      }
-      if (position.snapY === 'bottom') {
-        top = Math.max(8, window.innerHeight - height - EDGE_MARGIN);
-      } else if (position.snapY === 'top') {
-        top = EDGE_MARGIN;
-      }
-      return { left, top, snapX: position.snapX || null, snapY: position.snapY || null };
-    }
-
     /** Minimal shared store so the sidebar button and the panel agree. */
     function createStore(initial, persist) {
       let value = initial;
@@ -650,8 +600,8 @@ window.__ModuleLoader__.load({
 
     const openStore = createStore(true, () => scheduleSave());
     const itemsStore = createStore([], () => scheduleSave());
-    const positionStore = createStore(null, () => scheduleSave());
-
+    /** The docked panel folds into a 44px rail; the flag rides in the document. */
+    const collapsedStore = createStore(false, () => scheduleSave());
     // --- the state document -------------------------------------------------
     // One snapshot carries every store plus the attachment files. The Host half
     // writes it to disk; the page reads it once and re-posts after each change.
@@ -680,7 +630,7 @@ window.__ModuleLoader__.load({
         savedAt: Date.now(),
         open: openStore.get(),
         items: itemsStore.get(),
-        position: positionStore.get(),
+        collapsed: collapsedStore.get(),
         pomodoro: pomodoroStore.get(),
         attachments,
       };
@@ -790,7 +740,7 @@ window.__ModuleLoader__.load({
       if (!document || typeof document !== 'object') return;
       itemsStore.set(parseItemsArray(document.items));
       openStore.set(typeof document.open === 'boolean' ? document.open : true);
-      positionStore.set(parsePosition(document.position));
+      collapsedStore.set(document.collapsed === true);
       pomodoroStore.set(parsePomodoro(document.pomodoro));
       attachmentFiles.clear();
       const attachments = document.attachments;
@@ -839,7 +789,7 @@ window.__ModuleLoader__.load({
       if (legacyItems.length > 0) {
         itemsStore.set(legacyItems);
         openStore.set(readLegacy(LEGACY_OPEN) !== '0');
-        positionStore.set(readPosition());
+        collapsedStore.set(false);
         pomodoroStore.set(readPomodoro());
         for (const item of legacyItems) {
           if (!item.attachment || !item.attachment.stored) continue;
@@ -1228,6 +1178,7 @@ window.__ModuleLoader__.load({
     function TodoButton(props) {
       useLocaleVersion();
       const [open, setOpen] = openStore.use();
+      const [collapsed, setCollapsed] = collapsedStore.use();
       const [items] = itemsStore.use();
       const t = translate;
       const remaining = items.filter((item) => !item.done).length;
@@ -1244,7 +1195,16 @@ window.__ModuleLoader__.load({
           title: hint,
           'aria-label': t('title'),
           'aria-pressed': open,
-          onClick: () => setOpen(!open),
+          onClick: () => {
+            // A folded dock expands first, so the row never looks dead because
+            // the panel is technically still "open" behind the rail.
+            if (collapsed) {
+              setCollapsed(false);
+              setOpen(true);
+              return;
+            }
+            setOpen(!open);
+          },
         },
         h('style', null, CSS),
         h(ChecklistIcon, { size: wide ? 18 : 17 }),
@@ -1741,16 +1701,9 @@ window.__ModuleLoader__.load({
       });
       const [doneLimit, setDoneLimit] = React.useState(DONE_PAGE);
 
-      const panelRef = React.useRef(null);
       const downloadRef = React.useRef(null);
-      const dragRef = React.useRef(null);
-      const [position, setStoredPosition] = positionStore.use();
-      const positionRef = React.useRef(position);
-      const [dragging, setDragging] = React.useState(false);
-
-      React.useEffect(() => {
-        positionRef.current = position;
-      }, [position]);
+      // Docked, not dragged: the only layout state is whether the rail is folded.
+      const [collapsed, setCollapsed] = collapsedStore.use();
 
       React.useEffect(() => {
         if (!preview) return undefined;
@@ -1760,113 +1713,6 @@ window.__ModuleLoader__.load({
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
       }, [preview]);
-
-      /** Every position change goes through the store, which saves the document. */
-      const setPosition = (next) => {
-        positionRef.current = next;
-        setStoredPosition(next);
-      };
-
-      React.useEffect(() => {
-        const onResize = () => {
-          const current = positionRef.current;
-          if (!current) return;
-          const element = panelRef.current;
-          const width = element ? element.offsetWidth : 340;
-          const height = element ? element.offsetHeight : 320;
-          const next = anchorPosition(current, width, height);
-          if (
-            next.left !== current.left ||
-            next.top !== current.top ||
-            next.snapX !== current.snapX ||
-            next.snapY !== current.snapY
-          ) {
-            positionRef.current = next;
-            setPosition(next);
-          }
-        };
-        window.addEventListener('resize', onResize);
-        onResize();
-        return () => window.removeEventListener('resize', onResize);
-      }, []);
-
-      const applyPosition = (left, top) => {
-        const element = panelRef.current;
-        const width = element ? element.offsetWidth : 340;
-        const height = element ? element.offsetHeight : 320;
-        const maxLeft = Math.max(8, window.innerWidth - width - 8);
-        let nextLeft = clamp(left, 8, maxLeft);
-        let nextTop = clamp(top, 8, Math.max(8, window.innerHeight - 80));
-        let snapX = null;
-        let snapY = null;
-
-        const leftGap = nextLeft;
-        const rightGap = window.innerWidth - (nextLeft + width);
-        if (leftGap <= SNAP_THRESHOLD && leftGap <= rightGap) {
-          nextLeft = EDGE_MARGIN;
-          snapX = 'left';
-        } else if (rightGap <= SNAP_THRESHOLD) {
-          nextLeft = Math.max(8, window.innerWidth - width - EDGE_MARGIN);
-          snapX = 'right';
-        }
-
-        const topGap = nextTop;
-        const bottomGap = window.innerHeight - (nextTop + height);
-        if (topGap <= SNAP_THRESHOLD && topGap <= bottomGap) {
-          nextTop = EDGE_MARGIN;
-          snapY = 'top';
-        } else if (bottomGap <= SNAP_THRESHOLD) {
-          nextTop = Math.max(8, window.innerHeight - height - EDGE_MARGIN);
-          snapY = 'bottom';
-        }
-
-        const next = { left: nextLeft, top: nextTop, snapX, snapY };
-        positionRef.current = next;
-        setPosition(next);
-        return next;
-      };
-
-      const onHeaderPointerDown = (event) => {
-        if (event.button !== 0) return;
-        if (
-          event.target &&
-          typeof event.target.closest === 'function' &&
-          event.target.closest('button, input, textarea, a, label')
-        ) {
-          return;
-        }
-        const element = panelRef.current;
-        if (!element) return;
-        const rect = element.getBoundingClientRect();
-        dragRef.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
-        event.currentTarget.setPointerCapture(event.pointerId);
-        setDragging(true);
-      };
-
-      const onHeaderPointerMove = (event) => {
-        const drag = dragRef.current;
-        if (!drag) return;
-        applyPosition(event.clientX - drag.dx, event.clientY - drag.dy);
-      };
-
-      const onHeaderPointerUp = (event) => {
-        const drag = dragRef.current;
-        if (!drag) return;
-        dragRef.current = null;
-        // A fast flick can end between two pointermove frames, so the release
-        // coordinates get the final say: recompute (with snapping) here.
-        applyPosition(event.clientX - drag.dx, event.clientY - drag.dy);
-        setDragging(false);
-        try {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        } catch (error) {
-          /* pointer already released */
-        }
-      };
-
-      const resetPosition = () => {
-        setPosition(null);
-      };
 
       const toggleDone = (id) => {
         setItems((current) =>
@@ -2094,9 +1940,36 @@ window.__ModuleLoader__.load({
       const editingItem = editingId
         ? items.find((item) => item.id === editingId) || null
         : null;
-      const floatingStyle = position
-        ? { left: position.left + 'px', top: position.top + 'px', right: 'auto' }
-        : null;
+
+      // Folded: the whole dock becomes one rail button, so the panel keeps a
+      // visible handle instead of vanishing behind the sidebar launcher.
+      if (collapsed) {
+        const remaining = items.filter((item) => !item.done).length;
+        return h(
+          React.Fragment,
+          null,
+          h('style', null, CSS),
+          h(
+            'section',
+            { className: 'dshtodo-panel is-collapsed', 'aria-label': t('title') },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dshtodo-rail',
+                title: t('expand'),
+                'aria-label': t('expand'),
+                onClick: () => setCollapsed(false),
+              },
+              h(BackIcon, null),
+              h('span', { className: 'dshtodo-rail-label' }, t('title')),
+              remaining > 0
+                ? h('span', { className: 'dshtodo-rail-count' }, String(remaining))
+                : null,
+            ),
+          ),
+        );
+      }
 
       return h(
         React.Fragment,
@@ -2105,26 +1978,12 @@ window.__ModuleLoader__.load({
         h(
           'section',
           {
-            ref: panelRef,
-            className:
-              'dshtodo-panel' +
-              (position ? ' is-floating' : '') +
-              (dragging ? ' is-dragging' : '') +
-              (dragging && position && (position.snapX || position.snapY) ? ' is-snapped' : ''),
-            style: floatingStyle,
+            className: 'dshtodo-panel',
             'aria-label': t('title'),
           },
           h(
             'header',
-            {
-              className: 'dshtodo-header',
-              title: t('drag'),
-              onPointerDown: onHeaderPointerDown,
-              onPointerMove: onHeaderPointerMove,
-              onPointerUp: onHeaderPointerUp,
-              onPointerCancel: onHeaderPointerUp,
-              onDoubleClick: resetPosition,
-            },
+            { className: 'dshtodo-header' },
             formOpen || pomoOpen
               ? h(
                   'button',
@@ -2224,6 +2083,17 @@ window.__ModuleLoader__.load({
                     },
                     h(PlusIcon, null),
                   ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dshtodo-icon-btn',
+                  title: t('collapse'),
+                  'aria-label': t('collapse'),
+                  onClick: () => setCollapsed(true),
+                },
+                h(ChevronIcon, null),
+              ),
               h(
                 'button',
                 {
