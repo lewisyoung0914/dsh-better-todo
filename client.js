@@ -246,13 +246,10 @@ window.__ModuleLoader__.load({
 .dshtodo-btn-count{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-secondary)}
 .dshtodo-btn.is-open .dshtodo-btn-count{color:var(--dsw-alias-brand-primary)}
 .dshtodo-btn-badge{position:absolute;top:-1px;right:-1px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);font-size:9px;font-weight:600;line-height:14px;text-align:center}
-.dshtodo-panel{position:fixed;top:0;right:0;bottom:0;z-index:20;pointer-events:auto;display:flex;flex-direction:column;width:360px;max-width:100vw;height:100dvh;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 32px rgba(0,0,0,.10);font-family:inherit;transition:width .16s ease}
-.dshtodo-panel.is-collapsed{width:44px;box-shadow:-6px 0 18px rgba(0,0,0,.06)}
-.dshtodo-rail{flex:1;display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;padding:12px 0;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font-family:inherit;cursor:pointer}
-.dshtodo-rail:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);color:var(--dsw-alias-label-primary)}
-.dshtodo-rail:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
-.dshtodo-rail-label{writing-mode:vertical-rl;text-orientation:mixed;letter-spacing:.2em;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}
-.dshtodo-rail-count{font-size:11px;font-weight:600;color:var(--dsw-alias-brand-primary)}
+.dshtodo-panel{position:fixed;top:0;right:0;bottom:0;z-index:20;pointer-events:auto;display:flex;flex-direction:column;width:360px;max-width:100vw;height:100vh;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 32px rgba(0,0,0,.10);font-family:inherit;transition:width .16s ease}
+.dshtodo-fab{position:fixed;right:12px;z-index:20;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);box-shadow:0 6px 18px rgba(0,0,0,.14);font-family:inherit;cursor:pointer;transition:color .15s ease,box-shadow .15s ease}
+.dshtodo-fab:hover{color:var(--dsw-alias-label-primary);box-shadow:0 8px 22px rgba(0,0,0,.18)}
+.dshtodo-fab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .dshtodo-panel .dshtodo-header{flex:none;display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);user-select:none;cursor:default}
 .dshtodo-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dshtodo-sub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
@@ -2008,36 +2005,25 @@ window.__ModuleLoader__.load({
       const dockTop = useHeaderBottom();
       const panelStyle = { ...PANEL_STYLE, top: dockTop + 'px' };
 
-      // Folded: the whole dock becomes one rail button, so the panel keeps a
-      // visible handle instead of vanishing behind the sidebar launcher.
+      // Folded: a single floating chevron, not a full-height rail — the column
+      // gives its width back to the conversation, and the sidebar launcher still
+      // shows the open count.
       if (collapsed) {
-        const remaining = items.filter((item) => !item.done).length;
         return h(
           React.Fragment,
           null,
           h('style', null, CSS),
           h(
-            'section',
+            'button',
             {
-              className: 'dshtodo-panel is-collapsed',
-              style: { ...panelStyle, width: 44 },
-              'aria-label': t('title'),
+              type: 'button',
+              className: 'dshtodo-fab',
+              style: { top: dockTop + 10 + 'px' },
+              title: t('expand'),
+              'aria-label': t('expand'),
+              onClick: () => setCollapsed(false),
             },
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dshtodo-rail',
-                title: t('expand'),
-                'aria-label': t('expand'),
-                onClick: () => setCollapsed(false),
-              },
-              h(BackIcon, null),
-              h('span', { className: 'dshtodo-rail-label' }, t('title')),
-              remaining > 0
-                ? h('span', { className: 'dshtodo-rail-count' }, String(remaining))
-                : null,
-            ),
+            h(BackIcon, null),
           ),
         );
       }
