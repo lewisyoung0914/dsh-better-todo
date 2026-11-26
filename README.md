@@ -169,7 +169,8 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
-- `1.6.19` — the screenshots now show the docked column next to the chat instead of the old floating card.
+- `1.6.20` — the last two screenshots (a new item, the pomodoro page) match the current panel too.
+- `1.6.19` — the overview and list screenshots show the docked column beside the chat instead of the old floating card.
 - `1.6.18` — the floating card can be resized from its left edge, its bottom edge or the corner, and remembers the size.
 - `1.6.17` — the floating card hugs its content again instead of stretching to the window, and keeps its own 360px width.
 - `1.6.16` — a layout button switches between the docked column and the floating card, and the choice is persisted.
