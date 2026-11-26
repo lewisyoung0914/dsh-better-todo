@@ -7,7 +7,7 @@ English | [中文](README.zh.md)
 
 A todo panel for the DeepSeek Harness Web UI. It docks as a full-height column on the right — or floats over the chat as a resizable card that snaps to the window edges — and carries a pomodoro timer in its header.
 
-![The todo panel floating over the app](assets/screenshots/in-app.jpg)
+![The todo panel docked beside the conversation](assets/screenshots/in-app.jpg)
 
 ## Features
 
@@ -169,6 +169,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.19` — the screenshots now show the docked column next to the chat instead of the old floating card.
 - `1.6.18` — the floating card can be resized from its left edge, its bottom edge or the corner, and remembers the size.
 - `1.6.17` — the floating card hugs its content again instead of stretching to the window, and keeps its own 360px width.
 - `1.6.16` — a layout button switches between the docked column and the floating card, and the choice is persisted.
