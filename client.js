@@ -335,8 +335,8 @@ window.__ModuleLoader__.load({
 .dshtodo-panel.is-dragging{user-select:none}
 .dshtodo-panel.is-dragging .dshtodo-header{cursor:grabbing}
 /* Floating: the card hugs its content and grows until the window runs out of
-   room, then the body scrolls. `flex:0 1 auto` undoes the dock's `flex:1`,
-   whose zero basis would otherwise collapse the list to nothing. */
+   room, then the body scrolls. flex:0 1 auto undoes the dock's flex:1, whose
+   zero basis would otherwise collapse the list to nothing. */
 .dshtodo-panel.is-floating{height:auto}
 .dshtodo-panel.is-floating .dshtodo-body,.dshtodo-panel.is-floating .dshtodo-form,.dshtodo-panel.is-floating .dshtodo-pomo-page,.dshtodo-panel.is-floating .dshtodo-detail{flex:0 1 auto;max-height:calc(100vh - 220px)}
 .dshtodo-icon-btn.is-active{color:var(--dsw-alias-brand-primary)}
