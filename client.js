@@ -40,6 +40,9 @@ window.__ModuleLoader__.load({
     /** Distance from a window edge that pulls the floating card onto it. */
     const SNAP_RADIUS = 44;
     const FLOAT_MARGIN = 16;
+    /** The floating card keeps the width it always had; the dock's own width
+     *  is a separate, resizable number. */
+    const FLOAT_WIDTH = 360;
 
     /** A stored floating position, or null when it is missing or malformed. */
     function parseFloatPosition(value) {
@@ -331,6 +334,11 @@ window.__ModuleLoader__.load({
 .dshtodo-panel.is-floating .dshtodo-header{cursor:grab;touch-action:none}
 .dshtodo-panel.is-dragging{user-select:none}
 .dshtodo-panel.is-dragging .dshtodo-header{cursor:grabbing}
+/* Floating: the card hugs its content and grows until the window runs out of
+   room, then the body scrolls. `flex:0 1 auto` undoes the dock's `flex:1`,
+   whose zero basis would otherwise collapse the list to nothing. */
+.dshtodo-panel.is-floating{height:auto}
+.dshtodo-panel.is-floating .dshtodo-body,.dshtodo-panel.is-floating .dshtodo-form,.dshtodo-panel.is-floating .dshtodo-pomo-page,.dshtodo-panel.is-floating .dshtodo-detail{flex:0 1 auto;max-height:calc(100vh - 220px)}
 .dshtodo-icon-btn.is-active{color:var(--dsw-alias-brand-primary)}
 .dshtodo-resize{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;touch-action:none;transition:background .12s ease}
 .dshtodo-resize:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent)}
@@ -2124,7 +2132,7 @@ window.__ModuleLoader__.load({
         : null;
       const dockTop = useHeaderBottom();
       const floating = mode === 'float';
-      const spot = floating ? position || defaultFloatPosition(dockWidth) : null;
+      const spot = floating ? position || defaultFloatPosition(FLOAT_WIDTH) : null;
       const panelStyle = floating
         ? {
             ...PANEL_STYLE,
@@ -2132,7 +2140,8 @@ window.__ModuleLoader__.load({
             bottom: 'auto',
             left: spot.left + 'px',
             top: spot.top + 'px',
-            width: dockWidth,
+            width: FLOAT_WIDTH,
+            height: 'auto',
             maxHeight: 'calc(100vh - 120px)',
             border: '1px solid var(--dsw-alias-border-l1)',
             borderRadius: 12,
@@ -2159,7 +2168,7 @@ window.__ModuleLoader__.load({
       /** Puts the card at `left`/`top`, clamped to the window and edge-snapped. */
       const applyFloat = (left, top) => {
         const element = panelRef.current;
-        const width = element ? element.offsetWidth : dockWidth;
+        const width = element ? element.offsetWidth : FLOAT_WIDTH;
         const height = element ? element.offsetHeight : 320;
         setPosition(floatPlacement(left, top, width, height));
       };
@@ -2208,7 +2217,7 @@ window.__ModuleLoader__.load({
           setMode('dock');
           return;
         }
-        if (!position) setPosition(defaultFloatPosition(dockWidth));
+        if (!position) setPosition(defaultFloatPosition(FLOAT_WIDTH));
         setCollapsed(false);
         setMode('float');
       };
@@ -2221,14 +2230,14 @@ window.__ModuleLoader__.load({
             floatPlacement(
               position.left,
               position.top,
-              element ? element.offsetWidth : dockWidth,
+              element ? element.offsetWidth : FLOAT_WIDTH,
               element ? element.offsetHeight : 320,
             ),
           );
         };
         window.addEventListener('resize', keepInside);
         return () => window.removeEventListener('resize', keepInside);
-      }, [floating, position, dockWidth]);
+      }, [floating, position]);
 
       /** The left edge is a resize handle: the dock is anchored right, so the
        *  width is whatever distance the pointer keeps from the window edge. */
