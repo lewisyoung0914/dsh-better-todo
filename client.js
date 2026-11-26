@@ -37,6 +37,62 @@ window.__ModuleLoader__.load({
       return Math.round(Math.min(Math.max(numeric, DOCK_MIN), max));
     }
 
+    /** Distance from a window edge that pulls the floating card onto it. */
+    const SNAP_RADIUS = 44;
+    const FLOAT_MARGIN = 16;
+
+    /** A stored floating position, or null when it is missing or malformed. */
+    function parseFloatPosition(value) {
+      if (!value || typeof value !== 'object') return null;
+      const left = Number(value.left);
+      const top = Number(value.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+      return {
+        left: Math.round(left),
+        top: Math.round(top),
+        snapX: value.snapX === 'left' || value.snapX === 'right' ? value.snapX : null,
+        snapY: value.snapY === 'top' || value.snapY === 'bottom' ? value.snapY : null,
+      };
+    }
+
+    /** Clamps a floating card into the viewport and pulls it onto a nearby edge. */
+    function floatPlacement(left, top, width, height) {
+      const viewWidth = window.innerWidth || 1280;
+      const viewHeight = window.innerHeight || 800;
+      let nextLeft = clamp(left, 8, Math.max(8, viewWidth - width - 8));
+      let nextTop = clamp(top, 8, Math.max(8, viewHeight - 80));
+      let snapX = null;
+      let snapY = null;
+      const rightGap = viewWidth - (nextLeft + width);
+      if (nextLeft <= SNAP_RADIUS && nextLeft <= rightGap) {
+        nextLeft = FLOAT_MARGIN;
+        snapX = 'left';
+      } else if (rightGap <= SNAP_RADIUS) {
+        nextLeft = Math.max(8, viewWidth - width - FLOAT_MARGIN);
+        snapX = 'right';
+      }
+      const bottomGap = viewHeight - (nextTop + height);
+      if (nextTop <= SNAP_RADIUS && nextTop <= bottomGap) {
+        nextTop = FLOAT_MARGIN;
+        snapY = 'top';
+      } else if (bottomGap <= SNAP_RADIUS) {
+        nextTop = Math.max(8, viewHeight - height - FLOAT_MARGIN);
+        snapY = 'bottom';
+      }
+      return { left: nextLeft, top: nextTop, snapX, snapY };
+    }
+
+    /** Where the card lands the first time it is switched to floating mode. */
+    function defaultFloatPosition(width) {
+      const viewWidth = window.innerWidth || 1280;
+      return {
+        left: Math.max(8, viewWidth - width - FLOAT_MARGIN),
+        top: 84,
+        snapX: 'right',
+        snapY: null,
+      };
+    }
+
     /** Pomodoro presets offered in the panel, in minutes. */
     const POMO_FOCUS_CHOICES = [15, 30, 45, 60];
     const POMO_BREAK_CHOICES = [3, 5, 10, 15];
@@ -53,6 +109,9 @@ window.__ModuleLoader__.load({
         collapse: '收起侧栏',
         expand: '展开侧栏',
         resize: '拖动调整宽度',
+        floatMode: '切换为浮动面板',
+        dockMode: '切换为右侧定宽栏',
+        dragHint: '拖动标题栏移动，靠近边缘自动吸附',
         tabHome: '首页',
         tabAll: '全部',
         sectionToday: '今天',
@@ -122,6 +181,9 @@ window.__ModuleLoader__.load({
         collapse: 'Collapse sidebar',
         expand: 'Expand sidebar',
         resize: 'Drag to resize',
+        floatMode: 'Float over the chat',
+        dockMode: 'Pin as a column',
+        dragHint: 'Drag the header to move; it snaps to the edges',
         tabHome: 'Home',
         tabAll: 'All',
         sectionToday: 'Today',
@@ -266,6 +328,10 @@ window.__ModuleLoader__.load({
 .dshtodo-fab:hover{color:var(--dsw-alias-label-primary);box-shadow:0 8px 22px rgba(0,0,0,.18)}
 .dshtodo-fab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .dshtodo-panel.is-resizing{user-select:none}
+.dshtodo-panel.is-floating .dshtodo-header{cursor:grab;touch-action:none}
+.dshtodo-panel.is-dragging{user-select:none}
+.dshtodo-panel.is-dragging .dshtodo-header{cursor:grabbing}
+.dshtodo-icon-btn.is-active{color:var(--dsw-alias-brand-primary)}
 .dshtodo-resize{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;touch-action:none;transition:background .12s ease}
 .dshtodo-resize:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent)}
 .dshtodo-resize.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent)}
@@ -447,6 +513,14 @@ window.__ModuleLoader__.load({
 
     function ChevronIcon() {
       return svg({ size: 12, width: 1.8 }, [h('path', { key: 'c', d: 'M6 3.5l4 4.5-4 4.5' })]);
+    }
+
+    /** Layout toggle: a frame with its right column marked. */
+    function DockIcon() {
+      return svg({ size: 13, width: 1.4 }, [
+        h('rect', { key: 'r', x: 2.4, y: 3.4, width: 11.2, height: 9.2, rx: 2.2 }),
+        h('path', { key: 'd', d: 'M9.4 3.4v9.2' }),
+      ]);
     }
 
     function BackIcon() {
@@ -690,6 +764,11 @@ window.__ModuleLoader__.load({
     const collapsedStore = createStore(false, () => scheduleSave());
     /** Dock width in CSS pixels, dragged by the handle on its left edge. */
     const widthStore = createStore(DOCK_DEFAULT, () => scheduleSave());
+    /** 'dock' pins the panel to a reserved column; 'float' brings back the
+     *  draggable card that snaps to the window edges. */
+    const modeStore = createStore('dock', () => scheduleSave());
+    /** Where the floating card sits; ignored while docked. */
+    const positionStore = createStore(null, () => scheduleSave());
     // --- the state document -------------------------------------------------
     // One snapshot carries every store plus the attachment files. The Host half
     // writes it to disk; the page reads it once and re-posts after each change.
@@ -720,6 +799,8 @@ window.__ModuleLoader__.load({
         items: itemsStore.get(),
         collapsed: collapsedStore.get(),
         dockWidth: widthStore.get(),
+        mode: modeStore.get(),
+        position: positionStore.get(),
         pomodoro: pomodoroStore.get(),
         attachments,
       };
@@ -831,6 +912,8 @@ window.__ModuleLoader__.load({
       openStore.set(typeof document.open === 'boolean' ? document.open : true);
       collapsedStore.set(document.collapsed === true);
       widthStore.set(clampDockWidth(document.dockWidth));
+      modeStore.set(document.mode === 'float' ? 'float' : 'dock');
+      positionStore.set(parseFloatPosition(document.position));
       pomodoroStore.set(parsePomodoro(document.pomodoro));
       attachmentFiles.clear();
       const attachments = document.attachments;
@@ -1792,12 +1875,17 @@ window.__ModuleLoader__.load({
       const [doneLimit, setDoneLimit] = React.useState(DONE_PAGE);
 
       const downloadRef = React.useRef(null);
+      const panelRef = React.useRef(null);
       // Docked, not dragged: the layout state is the dock width and whether the
       // column is folded away.
       const [collapsed, setCollapsed] = collapsedStore.use();
       const [dockWidth, setDockWidth] = widthStore.use();
       const resizeRef = React.useRef(null);
       const [resizing, setResizing] = React.useState(false);
+      const [mode, setMode] = modeStore.use();
+      const [position, setPosition] = positionStore.use();
+      const dragRef = React.useRef(null);
+      const [dragging, setDragging] = React.useState(false);
 
       React.useEffect(() => {
         if (!preview) return undefined;
@@ -2035,23 +2123,112 @@ window.__ModuleLoader__.load({
         ? items.find((item) => item.id === editingId) || null
         : null;
       const dockTop = useHeaderBottom();
-      const panelStyle = {
-        ...PANEL_STYLE,
-        // The centre column already reserves the width, so the dock starts right
-        // under the desktop title strip — not under the conversation header,
-        // which would leave a notch of empty column above it.
-        top: 'var(--dsh-windows-titlebar-height, 0px)',
-        width: dockWidth,
-      };
+      const floating = mode === 'float';
+      const spot = floating ? position || defaultFloatPosition(dockWidth) : null;
+      const panelStyle = floating
+        ? {
+            ...PANEL_STYLE,
+            right: 'auto',
+            bottom: 'auto',
+            left: spot.left + 'px',
+            top: spot.top + 'px',
+            width: dockWidth,
+            maxHeight: 'calc(100vh - 120px)',
+            border: '1px solid var(--dsw-alias-border-l1)',
+            borderRadius: 12,
+            boxShadow: '0 12px 32px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.06)',
+          }
+        : {
+            ...PANEL_STYLE,
+            // The centre column already reserves the width, so the dock starts
+            // right under the desktop title strip — not under the conversation
+            // header, which would leave a notch of empty column above it.
+            top: 'var(--dsh-windows-titlebar-height, 0px)',
+            width: dockWidth,
+          };
 
-      // Reserve the column: the conversation shell shrinks by the dock width
-      // instead of sliding underneath it, so the two sit side by side.
+      // Reserve the column only while docked: a floating card and the folded
+      // chevron both give the width back to the conversation.
       React.useEffect(() => {
-        const space = collapsed ? 0 : dockWidth;
+        const space = floating || collapsed ? 0 : dockWidth;
         const root = document.documentElement;
         root.style.setProperty('--dshtodo-dock-space', space + 'px');
         return () => root.style.removeProperty('--dshtodo-dock-space');
-      }, [collapsed, dockWidth]);
+      }, [floating, collapsed, dockWidth]);
+
+      /** Puts the card at `left`/`top`, clamped to the window and edge-snapped. */
+      const applyFloat = (left, top) => {
+        const element = panelRef.current;
+        const width = element ? element.offsetWidth : dockWidth;
+        const height = element ? element.offsetHeight : 320;
+        setPosition(floatPlacement(left, top, width, height));
+      };
+
+      const onDragStart = (event) => {
+        if (!floating || event.button !== 0) return;
+        if (
+          event.target &&
+          typeof event.target.closest === 'function' &&
+          event.target.closest('button, input, textarea, a, label')
+        ) {
+          return;
+        }
+        const element = panelRef.current;
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        dragRef.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setDragging(true);
+      };
+
+      const onDragMove = (event) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        applyFloat(event.clientX - drag.dx, event.clientY - drag.dy);
+      };
+
+      const onDragEnd = (event) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        dragRef.current = null;
+        // A fast flick can end between two frames; the release point has the
+        // final say so the card still snaps.
+        applyFloat(event.clientX - drag.dx, event.clientY - drag.dy);
+        setDragging(false);
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          /* pointer already released */
+        }
+      };
+
+      /** Dock ⇄ float. Entering float seeds a position the first time. */
+      const toggleMode = () => {
+        if (floating) {
+          setMode('dock');
+          return;
+        }
+        if (!position) setPosition(defaultFloatPosition(dockWidth));
+        setCollapsed(false);
+        setMode('float');
+      };
+
+      React.useEffect(() => {
+        if (!floating || !position) return undefined;
+        const keepInside = () => {
+          const element = panelRef.current;
+          setPosition(
+            floatPlacement(
+              position.left,
+              position.top,
+              element ? element.offsetWidth : dockWidth,
+              element ? element.offsetHeight : 320,
+            ),
+          );
+        };
+        window.addEventListener('resize', keepInside);
+        return () => window.removeEventListener('resize', keepInside);
+      }, [floating, position, dockWidth]);
 
       /** The left edge is a resize handle: the dock is anchored right, so the
        *  width is whatever distance the pointer keeps from the window edge. */
@@ -2081,8 +2258,8 @@ window.__ModuleLoader__.load({
 
       // Folded: a single floating chevron, not a full-height rail — the column
       // gives its width back to the conversation, and the sidebar launcher still
-      // shows the open count.
-      if (collapsed) {
+      // shows the open count. Only the docked column folds.
+      if (collapsed && !floating) {
         return h(
           React.Fragment,
           null,
@@ -2109,24 +2286,38 @@ window.__ModuleLoader__.load({
         h(
           'section',
           {
-            className: 'dshtodo-panel' + (resizing ? ' is-resizing' : ''),
+            ref: panelRef,
+            className:
+              'dshtodo-panel' +
+              (floating ? ' is-floating' : '') +
+              (dragging ? ' is-dragging' : '') +
+              (resizing ? ' is-resizing' : ''),
             style: panelStyle,
             'aria-label': t('title'),
           },
-          h('div', {
-            className: 'dshtodo-resize' + (resizing ? ' is-active' : ''),
-            role: 'separator',
-            'aria-orientation': 'vertical',
-            'aria-label': t('resize'),
-            title: t('resize'),
-            onPointerDown: onResizeStart,
-            onPointerMove: onResizeMove,
-            onPointerUp: onResizeEnd,
-            onPointerCancel: onResizeEnd,
-          }),
+          floating
+            ? null
+            : h('div', {
+                className: 'dshtodo-resize' + (resizing ? ' is-active' : ''),
+                role: 'separator',
+                'aria-orientation': 'vertical',
+                'aria-label': t('resize'),
+                title: t('resize'),
+                onPointerDown: onResizeStart,
+                onPointerMove: onResizeMove,
+                onPointerUp: onResizeEnd,
+                onPointerCancel: onResizeEnd,
+              }),
           h(
             'header',
-            { className: 'dshtodo-header' },
+            {
+              className: 'dshtodo-header',
+              title: floating ? t('dragHint') : undefined,
+              onPointerDown: onDragStart,
+              onPointerMove: onDragMove,
+              onPointerUp: onDragEnd,
+              onPointerCancel: onDragEnd,
+            },
             formOpen || pomoOpen
               ? h(
                   'button',
@@ -2230,13 +2421,26 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  className: 'dshtodo-icon-btn',
-                  title: t('collapse'),
-                  'aria-label': t('collapse'),
-                  onClick: () => setCollapsed(true),
+                  className: 'dshtodo-icon-btn' + (floating ? ' is-active' : ''),
+                  title: floating ? t('dockMode') : t('floatMode'),
+                  'aria-label': floating ? t('dockMode') : t('floatMode'),
+                  onClick: toggleMode,
                 },
-                h(ChevronIcon, null),
+                h(DockIcon, null),
               ),
+              floating
+                ? null
+                : h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dshtodo-icon-btn',
+                      title: t('collapse'),
+                      'aria-label': t('collapse'),
+                      onClick: () => setCollapsed(true),
+                    },
+                    h(ChevronIcon, null),
+                  ),
               h(
                 'button',
                 {
