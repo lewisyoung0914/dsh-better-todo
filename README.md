@@ -168,6 +168,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.17` — the floating card hugs its content again instead of stretching to the window, and keeps its own 360px width.
 - `1.6.16` — a layout button switches between the docked column and the floating card, and the choice is persisted.
 - `1.6.15` — the dock starts at the desktop title strip, so the reserved column has no empty notch above it.
 - `1.6.14` — reserve the width on the centre column only, so the frame's title bar and window controls keep their place.
