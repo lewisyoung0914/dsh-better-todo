@@ -40,9 +40,11 @@ window.__ModuleLoader__.load({
     /** Distance from a window edge that pulls the floating card onto it. */
     const SNAP_RADIUS = 44;
     const FLOAT_MARGIN = 16;
-    /** The floating card keeps the width it always had; the dock's own width
-     *  is a separate, resizable number. */
+    /** The floating card keeps the width it always had until it is resized; the
+     *  dock's own width is a separate, resizable number. */
     const FLOAT_WIDTH = 360;
+    const FLOAT_MIN_WIDTH = 300;
+    const FLOAT_MIN_HEIGHT = 220;
 
     /** A stored floating position, or null when it is missing or malformed. */
     function parseFloatPosition(value) {
@@ -96,6 +98,32 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** What the window leaves for a floating card at this moment. */
+    function floatSizeLimits() {
+      const viewWidth = window.innerWidth || 1280;
+      const viewHeight = window.innerHeight || 800;
+      return {
+        width: Math.max(FLOAT_MIN_WIDTH, viewWidth - 2 * FLOAT_MARGIN),
+        height: Math.max(FLOAT_MIN_HEIGHT, viewHeight - 2 * FLOAT_MARGIN),
+      };
+    }
+
+    /** A stored card size, clamped to the window; a null height means "fit content". */
+    function clampFloatSize(value) {
+      const limits = floatSizeLimits();
+      const size = value && typeof value === 'object' ? value : {};
+      const width = Number(size.width);
+      const height = Number(size.height);
+      return {
+        width: Math.round(
+          Math.min(Math.max(Number.isFinite(width) ? width : FLOAT_WIDTH, FLOAT_MIN_WIDTH), limits.width),
+        ),
+        height: Number.isFinite(height)
+          ? Math.round(Math.min(Math.max(height, FLOAT_MIN_HEIGHT), limits.height))
+          : null,
+      };
+    }
+
     /** Pomodoro presets offered in the panel, in minutes. */
     const POMO_FOCUS_CHOICES = [15, 30, 45, 60];
     const POMO_BREAK_CHOICES = [3, 5, 10, 15];
@@ -112,9 +140,10 @@ window.__ModuleLoader__.load({
         collapse: '收起侧栏',
         expand: '展开侧栏',
         resize: '拖动调整宽度',
+        resizeCorner: '拖动调整大小，双击恢复默认',
         floatMode: '切换为浮动面板',
         dockMode: '切换为右侧定宽栏',
-        dragHint: '拖动标题栏移动，靠近边缘自动吸附',
+        dragHint: '拖动标题栏移动；拖左/下边缘改大小；靠近边缘自动吸附',
         tabHome: '首页',
         tabAll: '全部',
         sectionToday: '今天',
@@ -184,9 +213,10 @@ window.__ModuleLoader__.load({
         collapse: 'Collapse sidebar',
         expand: 'Expand sidebar',
         resize: 'Drag to resize',
+        resizeCorner: 'Drag to resize; double-click to reset',
         floatMode: 'Float over the chat',
         dockMode: 'Pin as a column',
-        dragHint: 'Drag the header to move; it snaps to the edges',
+        dragHint: 'Drag the header to move; drag the left or bottom edge to resize; it snaps to the edges',
         tabHome: 'Home',
         tabAll: 'All',
         sectionToday: 'Today',
@@ -330,19 +360,24 @@ window.__ModuleLoader__.load({
 .dshtodo-fab{position:fixed;right:12px;z-index:20;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);box-shadow:0 6px 18px rgba(0,0,0,.14);font-family:inherit;cursor:pointer;transition:color .15s ease,box-shadow .15s ease}
 .dshtodo-fab:hover{color:var(--dsw-alias-label-primary);box-shadow:0 8px 22px rgba(0,0,0,.18)}
 .dshtodo-fab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
-.dshtodo-panel.is-resizing{user-select:none}
+.dshtodo-panel.is-resizing{user-select:none;transition:none}
 .dshtodo-panel.is-floating .dshtodo-header{cursor:grab;touch-action:none}
 .dshtodo-panel.is-dragging{user-select:none}
 .dshtodo-panel.is-dragging .dshtodo-header{cursor:grabbing}
 /* Floating: the card hugs its content and grows until the window runs out of
-   room, then the body scrolls. flex:0 1 auto undoes the dock's flex:1, whose
+   room, then the body scrolls. flex-basis auto undoes the dock's flex:1, whose
    zero basis would otherwise collapse the list to nothing. */
-.dshtodo-panel.is-floating{height:auto}
-.dshtodo-panel.is-floating .dshtodo-body,.dshtodo-panel.is-floating .dshtodo-form,.dshtodo-panel.is-floating .dshtodo-pomo-page,.dshtodo-panel.is-floating .dshtodo-detail{flex:0 1 auto;max-height:calc(100vh - 220px)}
+.dshtodo-panel.is-floating{height:auto;transition:none}
+.dshtodo-panel.is-floating.is-autoheight .dshtodo-body,.dshtodo-panel.is-floating.is-autoheight .dshtodo-form,.dshtodo-panel.is-floating.is-autoheight .dshtodo-pomo-page,.dshtodo-panel.is-floating.is-autoheight .dshtodo-detail{flex:1 1 auto;max-height:calc(100vh - 220px)}
 .dshtodo-icon-btn.is-active{color:var(--dsw-alias-brand-primary)}
 .dshtodo-resize{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;touch-action:none;transition:background .12s ease}
 .dshtodo-resize:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent)}
 .dshtodo-resize.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent)}
+.dshtodo-resize-bottom{position:absolute;left:0;right:0;bottom:0;height:6px;cursor:ns-resize;background:transparent;touch-action:none;transition:background .12s ease}
+.dshtodo-resize-bottom:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent)}
+.dshtodo-resize-bottom.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent)}
+.dshtodo-resize-corner{position:absolute;right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;background:transparent;touch-action:none;z-index:3}
+.dshtodo-panel.is-floating:hover .dshtodo-resize-corner{background:linear-gradient(135deg,transparent 45%,color-mix(in srgb,var(--dsw-alias-border-l2) 90%,transparent) 45%,color-mix(in srgb,var(--dsw-alias-border-l2) 90%,transparent) 62%,transparent 62%)}
 /* The dock is an overlay seat, so the centre column reserves the space itself:
    --dshtodo-dock-space is 0 while folded or closed, and the dock width while
    open. Scoped to that column only, so the frame's title bar and window
@@ -777,6 +812,8 @@ window.__ModuleLoader__.load({
     const modeStore = createStore('dock', () => scheduleSave());
     /** Where the floating card sits; ignored while docked. */
     const positionStore = createStore(null, () => scheduleSave());
+    /** The floating card's size; `height: null` fits the content. */
+    const floatSizeStore = createStore(null, () => scheduleSave());
     // --- the state document -------------------------------------------------
     // One snapshot carries every store plus the attachment files. The Host half
     // writes it to disk; the page reads it once and re-posts after each change.
@@ -809,6 +846,7 @@ window.__ModuleLoader__.load({
         dockWidth: widthStore.get(),
         mode: modeStore.get(),
         position: positionStore.get(),
+        floatSize: floatSizeStore.get(),
         pomodoro: pomodoroStore.get(),
         attachments,
       };
@@ -922,6 +960,7 @@ window.__ModuleLoader__.load({
       widthStore.set(clampDockWidth(document.dockWidth));
       modeStore.set(document.mode === 'float' ? 'float' : 'dock');
       positionStore.set(parseFloatPosition(document.position));
+      floatSizeStore.set(clampFloatSize(document.floatSize));
       pomodoroStore.set(parsePomodoro(document.pomodoro));
       attachmentFiles.clear();
       const attachments = document.attachments;
@@ -1892,7 +1931,9 @@ window.__ModuleLoader__.load({
       const [resizing, setResizing] = React.useState(false);
       const [mode, setMode] = modeStore.use();
       const [position, setPosition] = positionStore.use();
+      const [floatSize, setFloatSize] = floatSizeStore.use();
       const dragRef = React.useRef(null);
+      const floatResizeRef = React.useRef(null);
       const [dragging, setDragging] = React.useState(false);
 
       React.useEffect(() => {
@@ -2133,6 +2174,7 @@ window.__ModuleLoader__.load({
       const dockTop = useHeaderBottom();
       const floating = mode === 'float';
       const spot = floating ? position || defaultFloatPosition(FLOAT_WIDTH) : null;
+      const cardSize = clampFloatSize(floatSize);
       const panelStyle = floating
         ? {
             ...PANEL_STYLE,
@@ -2140,8 +2182,8 @@ window.__ModuleLoader__.load({
             bottom: 'auto',
             left: spot.left + 'px',
             top: spot.top + 'px',
-            width: FLOAT_WIDTH,
-            height: 'auto',
+            width: cardSize.width,
+            height: cardSize.height ? cardSize.height + 'px' : 'auto',
             maxHeight: 'calc(100vh - 120px)',
             border: '1px solid var(--dsw-alias-border-l1)',
             borderRadius: 12,
@@ -2217,27 +2259,44 @@ window.__ModuleLoader__.load({
           setMode('dock');
           return;
         }
-        if (!position) setPosition(defaultFloatPosition(FLOAT_WIDTH));
+        if (!position) setPosition(defaultFloatPosition(cardSize.width));
+        else
+          setPosition(
+            floatPlacement(
+              position.left,
+              position.top,
+              cardSize.width,
+              cardSize.height || 320,
+            ),
+          );
         setCollapsed(false);
         setMode('float');
       };
 
       React.useEffect(() => {
-        if (!floating || !position) return undefined;
+        if (!floating) return undefined;
         const keepInside = () => {
+          setFloatSize((current) => {
+            const next = clampFloatSize(current);
+            return current && current.width === next.width && current.height === next.height
+              ? current
+              : next;
+          });
+          if (!position) return;
           const element = panelRef.current;
+          const size = clampFloatSize(floatSize);
           setPosition(
             floatPlacement(
               position.left,
               position.top,
-              element ? element.offsetWidth : FLOAT_WIDTH,
-              element ? element.offsetHeight : 320,
+              size.width,
+              element && size.height === null ? element.offsetHeight : size.height || 320,
             ),
           );
         };
         window.addEventListener('resize', keepInside);
         return () => window.removeEventListener('resize', keepInside);
-      }, [floating, position]);
+      }, [floating, position, floatSize]);
 
       /** The left edge is a resize handle: the dock is anchored right, so the
        *  width is whatever distance the pointer keeps from the window edge. */
@@ -2264,6 +2323,69 @@ window.__ModuleLoader__.load({
           /* pointer already released */
         }
       };
+
+      /** The floating card resizes from its left edge, its bottom edge and the
+       *  bottom-right corner. Height stays content-driven until one is dragged;
+       *  double-clicking the corner hands it back to the content. */
+      const onFloatResizeStart = (mode) => (event) => {
+        if (event.button !== 0) return;
+        const element = panelRef.current;
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        floatResizeRef.current = {
+          mode,
+          startX: event.clientX,
+          startY: event.clientY,
+          width: rect.width,
+          height: rect.height,
+          left: rect.left,
+          top: rect.top,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setResizing(true);
+      };
+
+      const onFloatResizeMove = (event) => {
+        const drag = floatResizeRef.current;
+        if (!drag) return;
+        const limits = floatSizeLimits();
+        let width = drag.width;
+        let height = drag.height;
+        if (drag.mode === 'left' || drag.mode === 'corner') {
+          width = drag.width - (event.clientX - drag.startX);
+        }
+        if (drag.mode === 'bottom' || drag.mode === 'corner') {
+          height = drag.height + (event.clientY - drag.startY);
+        }
+        width = Math.min(Math.max(width, FLOAT_MIN_WIDTH), limits.width);
+        height = Math.min(Math.max(height, FLOAT_MIN_HEIGHT), limits.height);
+        if (drag.mode === 'left') {
+          // The right edge stays put, so the card grows towards the chat.
+          const maxLeft = Math.max(8, (window.innerWidth || 1280) - width - 8);
+          const left = Math.min(Math.max(8, drag.left + (drag.width - width)), maxLeft);
+          setPosition({
+            left: Math.round(left),
+            top: Math.round(drag.top),
+            snapX: null,
+            snapY: null,
+          });
+        }
+        setFloatSize({ width: Math.round(width), height: Math.round(height) });
+      };
+
+      const onFloatResizeEnd = (event) => {
+        if (!floatResizeRef.current) return;
+        floatResizeRef.current = null;
+        setResizing(false);
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          /* pointer already released */
+        }
+      };
+
+      /** Back to a content-sized 360px card. */
+      const resetFloatSize = () => setFloatSize(clampFloatSize(null));
 
       // Folded: a single floating chevron, not a full-height rail — the column
       // gives its width back to the conversation, and the sidebar launcher still
@@ -2299,13 +2421,50 @@ window.__ModuleLoader__.load({
             className:
               'dshtodo-panel' +
               (floating ? ' is-floating' : '') +
+              (floating && !cardSize.height ? ' is-autoheight' : '') +
               (dragging ? ' is-dragging' : '') +
               (resizing ? ' is-resizing' : ''),
             style: panelStyle,
             'aria-label': t('title'),
           },
           floating
-            ? null
+            ? [
+                h('div', {
+                  key: 'resize-left',
+                  className: 'dshtodo-resize' + (resizing ? ' is-active' : ''),
+                  role: 'separator',
+                  'aria-orientation': 'vertical',
+                  'aria-label': t('resize'),
+                  title: t('resize'),
+                  onPointerDown: onFloatResizeStart('left'),
+                  onPointerMove: onFloatResizeMove,
+                  onPointerUp: onFloatResizeEnd,
+                  onPointerCancel: onFloatResizeEnd,
+                }),
+                h('div', {
+                  key: 'resize-bottom',
+                  className: 'dshtodo-resize-bottom' + (resizing ? ' is-active' : ''),
+                  role: 'separator',
+                  'aria-orientation': 'horizontal',
+                  'aria-label': t('resize'),
+                  title: t('resize'),
+                  onPointerDown: onFloatResizeStart('bottom'),
+                  onPointerMove: onFloatResizeMove,
+                  onPointerUp: onFloatResizeEnd,
+                  onPointerCancel: onFloatResizeEnd,
+                }),
+                h('div', {
+                  key: 'resize-corner',
+                  className: 'dshtodo-resize-corner' + (resizing ? ' is-active' : ''),
+                  title: t('resizeCorner'),
+                  'aria-label': t('resizeCorner'),
+                  onPointerDown: onFloatResizeStart('corner'),
+                  onPointerMove: onFloatResizeMove,
+                  onPointerUp: onFloatResizeEnd,
+                  onPointerCancel: onFloatResizeEnd,
+                  onDoubleClick: resetFloatSize,
+                }),
+              ]
             : h('div', {
                 className: 'dshtodo-resize' + (resizing ? ' is-active' : ''),
                 role: 'separator',

@@ -5,14 +5,14 @@
 
 English | [中文](README.zh.md)
 
-A todo panel for the DeepSeek Harness Web UI. It floats above the right side of the window, snaps to whichever edge you drag it near, and carries a pomodoro timer in its header.
+A todo panel for the DeepSeek Harness Web UI. It docks as a full-height column on the right — or floats over the chat as a resizable card that snaps to the window edges — and carries a pomodoro timer in its header.
 
 ![The todo panel floating over the app](assets/screenshots/in-app.jpg)
 
 ## Features
 
 - **A real column, not an overlay** — the conversation column reserves the dock's width, so the panel sits *beside* the chat instead of covering it; the header, the composer and the messages all shrink to fit. **Drag the panel's left edge** to set the width (260px up to the window minus 320px); the header chevron folds it away to a single floating button, which reopens it.
-- **Dock or float** — the layout button in the header switches between the pinned column and the older floating card, which drags by its header and snaps to the window edges. The choice is remembered.
+- **Dock or float** — the layout button in the header switches between the pinned column and the older floating card, which drags by its header and snaps to the window edges. The card resizes from its left edge, its bottom edge or the bottom-right corner, and a double-click on that corner hands the height back to the content. The choice and the size are remembered.
 - **Sidebar launcher** — a `Todo` row sits beside Settings and shows how many items are still open. The panel remembers whether it was open.
 - **Two views** — `Home` groups items into **Today** (due today) and **More** (everything else, including items with no due date), both collapsible. `All` splits **unfinished** and **finished**; the finished list shows 10 at a time and loads 20 more per click.
 - **Detail page, then edit on demand** — `+` opens a form for the title, details, due time and one attachment. Clicking an item opens a read-only page first; nothing can be changed until **Edit** in the top right switches it to the form.
@@ -145,6 +145,7 @@ The page reads and writes it through `/todo-panel/state` on its own origin. That
 | `dockWidth` | dock width in CSS pixels, set by dragging its left edge |
 | `mode` | `dock` (pinned column) or `float` (draggable card) |
 | `position` | the floating card's `left` / `top` and snapped edges |
+| `floatSize` | the floating card's `width` and `height`; a null height means it fits its content |
 | `pomodoro` | timer settings and the running phase |
 | `attachments` | one data URL per item id |
 
@@ -168,6 +169,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.6.18` — the floating card can be resized from its left edge, its bottom edge or the corner, and remembers the size.
 - `1.6.17` — the floating card hugs its content again instead of stretching to the window, and keeps its own 360px width.
 - `1.6.16` — a layout button switches between the docked column and the floating card, and the choice is persisted.
 - `1.6.15` — the dock starts at the desktop title strip, so the reserved column has no empty notch above it.
