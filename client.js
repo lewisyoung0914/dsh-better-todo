@@ -162,6 +162,7 @@ window.__ModuleLoader__.load({
         fieldDetail: '详情',
         detailPlaceholder: '补充说明（可选）',
         fieldDue: '截止时间',
+        doneAt: '完成于',
         fieldAttachment: '附件',
         addAttachment: '添加附件',
         removeAttachment: '移除附件',
@@ -235,6 +236,7 @@ window.__ModuleLoader__.load({
         fieldDetail: 'Details',
         detailPlaceholder: 'Anything else (optional)',
         fieldDue: 'Due',
+        doneAt: 'Completed',
         fieldAttachment: 'Attachment',
         addAttachment: 'Add attachment',
         removeAttachment: 'Remove attachment',
@@ -422,6 +424,7 @@ window.__ModuleLoader__.load({
 .dshtodo-chip-btn{padding:0;border:none;background:transparent;color:inherit;font-family:inherit;font-size:10.5px;cursor:pointer}
 .dshtodo-chip-btn:hover{color:var(--dsw-alias-label-primary)}
 .dshtodo-due.is-overdue{color:var(--dsw-alias-state-warn-primary)}
+.dshtodo-done-at{opacity:.85;font-variant-numeric:tabular-nums}
 .dshtodo-empty{margin:0;padding:12px 14px;font-size:11.5px;text-align:center;color:var(--dsw-alias-label-secondary)}
 .dshtodo-more{align-self:center;margin:6px 0 4px;padding:4px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;cursor:pointer}
 .dshtodo-more:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);color:var(--dsw-alias-label-primary)}
@@ -1377,6 +1380,35 @@ window.__ModuleLoader__.load({
       return date.toLocaleDateString(locale, { month: 'numeric', day: 'numeric' }) + ' ' + time;
     }
 
+    /**
+     * Epoch milliseconds from whatever the store holds. The panel writes a
+     * number (`Date.now()`), while the agent tools write an ISO string; both
+     * have to format the same way here.
+     */
+    function momentTime(value) {
+      if (typeof value === 'number') return Number.isFinite(value) ? value : Number.NaN;
+      if (typeof value === 'string' && value !== '') {
+        const parsed = new Date(value).getTime();
+        return Number.isFinite(parsed) ? parsed : Number.NaN;
+      }
+      return Number.NaN;
+    }
+
+    /**
+     * A stored moment as `11-27 15:20`: the completion stamp stays readable at
+     * panel width, and the year only appears when it is not the current one.
+     */
+    function formatMoment(value) {
+      const time = momentTime(value);
+      if (!Number.isFinite(time)) return '';
+      const date = new Date(time);
+      const pad = (part) => String(part).padStart(2, '0');
+      const day = date.getMonth() + 1 + '-' + pad(date.getDate());
+      const clock = pad(date.getHours()) + ':' + pad(date.getMinutes());
+      const year = date.getFullYear() === new Date().getFullYear() ? '' : date.getFullYear() + '-';
+      return year + day + ' ' + clock;
+    }
+
     /** True for an attachment the panel can show inline instead of downloading. */
     function isImageAttachment(attachment) {
       if (!attachment) return false;
@@ -2025,8 +2057,9 @@ window.__ModuleLoader__.load({
         closeForm();
       };
 
-      const renderRow = (item) =>
-        h(
+      const renderRow = (item) => {
+        const doneAt = item.done ? formatMoment(item.completedAt) : '';
+        return h(
           'li',
           { key: item.id, className: 'dshtodo-item' + (item.done ? ' is-done' : '') },
           h(
@@ -2059,7 +2092,7 @@ window.__ModuleLoader__.load({
               },
             },
             h('span', { className: 'dshtodo-text' }, item.title),
-            item.due || item.attachment
+            item.due || item.attachment || doneAt
               ? h(
                   'div',
                   { className: 'dshtodo-meta' },
@@ -2089,6 +2122,16 @@ window.__ModuleLoader__.load({
                         h('span', { className: 'dshtodo-chip-text' }, item.attachment.name),
                       )
                     : null,
+                  doneAt
+                    ? h(
+                        'span',
+                        {
+                          className: 'dshtodo-chip dshtodo-done-at',
+                          title: t('doneAt') + ' ' + doneAt,
+                        },
+                        t('doneAt') + ' ' + doneAt,
+                      )
+                    : null,
                 )
               : null,
           ),
@@ -2104,6 +2147,7 @@ window.__ModuleLoader__.load({
             h(TrashIcon, null),
           ),
         );
+      };
 
       const renderSection = (key, label, list, footer) => {
         const isOpen = expanded[key] !== false;
