@@ -612,7 +612,9 @@ export function apply(ctx) {
     );
   });
 
-  ctx.inject(["tools"], (toolCtx) => registerAgentTools(toolCtx, toolCtx.tools, transact));
+  ctx.inject(["tools"], (toolCtx) =>
+    registerAgentTools(toolCtx, toolCtx.tools, transact, readDocument),
+  );
 }
 
 /**
@@ -620,7 +622,18 @@ export function apply(ctx) {
  * carries `tools` can be handed straight in, and so a late-mounting registry
  * gets them too.
  */
-function registerAgentTools(ctx, tools, transact) {
+function registerAgentTools(ctx, tools, transact, readDocument) {
+  /**
+   * `completedAt` as ISO text. The panel stores epoch milliseconds while this
+   * half stores ISO strings, and the tool's schema says string, so both shapes
+   * are normalised here instead of one of them arriving empty.
+   */
+  const isoStamp = (value) => {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString();
+    return '';
+  };
+
   /**
    * One entry of the panel, flattened for the model: the same fields the panel
    * shows, with the attachment reduced to its name and size because the data
@@ -633,7 +646,7 @@ function registerAgentTools(ctx, tools, transact) {
       detail: typeof item.detail === 'string' ? item.detail : '',
       due: typeof item.due === 'string' ? item.due : '',
       done: item.done === true,
-      completedAt: typeof item.completedAt === 'string' ? item.completedAt : '',
+      completedAt: isoStamp(item.completedAt),
     };
     if (item.attachment && typeof item.attachment === 'object') {
       flat.attachment = {
