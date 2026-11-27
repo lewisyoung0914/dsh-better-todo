@@ -16,6 +16,7 @@ A todo panel for the DeepSeek Harness Web UI. It docks as a full-height column o
 - **Sidebar launcher** — a `Todo` row sits beside Settings and shows how many items are still open. The panel remembers whether it was open.
 - **Two views** — `Home` groups items into **Today** (due today) and **More** (everything else, including items with no due date), both collapsible. `All` splits **unfinished** and **finished**; the finished list shows 10 at a time and loads 20 more per click.
 - **Detail page, then edit on demand** — `+` opens a form for the title, details, due time and one attachment. Clicking an item opens a read-only page first; nothing can be changed until **Edit** in the top right switches it to the form.
+- **The completion stamp is visible** — a finished item carries `Completed 11-27 15:20` under its title (the year only appears when it is not the current one), and the All view orders its finished list by that stamp.
 - **Attachments behave by type** — clicking an image attachment opens it full-screen (click the backdrop or press Escape to close); any other file downloads.
 - **Pomodoro timer** — the clock in the panel header opens a timer page: focus length (presets 15 / 30 / 45 / 60 minutes, or any value from 1 to 180 typed by hand), a round count (1–12) and a break interval (presets 3 / 5 / 10 / 15, or any value from 1 to 120). The countdown stays visible in the header, with a **pause / resume** button right beside it that freezes the remaining time and continues from there.
 - **A phase ends, then waits for you** — when focus or break hits zero it does not switch phases on its own: the countdown stops, an alert appears in the panel (reopening it if it was closed) and Windows gets a toast. The next phase starts when you press **Start break** or **Start focus**; **Later** tucks the alert away.
@@ -169,6 +170,7 @@ There is no JSX: components are built with `React.createElement` (aliased to `h`
 
 ## Changelog
 
+- `1.7.0` — fixes `todo_list`: the Host never handed its state reader to the tool registry, so every call threw `ReferenceError`; a finished item now shows `Completed 11-27 15:20` under its title, and the stamp the tools return is always ISO text.
 - `1.6.20` — the last two screenshots (a new item, the pomodoro page) match the current panel too.
 - `1.6.19` — the overview and list screenshots show the docked column beside the chat instead of the old floating card.
 - `1.6.18` — the floating card can be resized from its left edge, its bottom edge or the corner, and remembers the size.
